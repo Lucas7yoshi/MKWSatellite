@@ -50,6 +50,60 @@ internal static class BymlText
         }
     }
 
+    /// <summary>Plain YAML: dicts as maps, hash maps with 0x-hex keys, arrays as block sequences, binary as hex.</summary>
+    public static void WriteYaml(TextWriter w, object? node, string indent = "")
+    {
+        static bool Container(object? v) => v is BymlDict { Count: > 0 } or BymlArray { Count: > 0 } or BymlHashMap { Count: > 0 };
+        void Entry(string key, object? v)
+        {
+            if (Container(v)) { w.WriteLine($"{indent}{key}:"); WriteYaml(w, v, indent + "  "); }
+            else w.WriteLine($"{indent}{key}: {YamlScalar(v)}");
+        }
+        switch (node)
+        {
+            case BymlDict d:
+                foreach (var (k, v) in d) Entry(YamlKey(k), v);
+                break;
+            case BymlHashMap h:
+                foreach (var (k, v) in h) Entry($"0x{k:X16}", v);
+                break;
+            case BymlArray a:
+                foreach (var v in a)
+                {
+                    if (!Container(v)) { w.WriteLine($"{indent}- {YamlScalar(v)}"); continue; }
+                    // First line of a nested block goes after the dash.
+                    var sub = new StringWriter();
+                    WriteYaml(sub, v, indent + "  ");
+                    var text = sub.ToString();
+                    w.Write($"{indent}- {text[(indent.Length + 2)..]}");
+                }
+                break;
+            default:
+                w.WriteLine(indent + YamlScalar(node));
+                break;
+        }
+    }
+
+    private static string YamlKey(string k) =>
+        k.Length > 0 && k.All(c => char.IsLetterOrDigit(c) || c is '_' or '.' or '-' or '/') && !char.IsDigit(k[0]) ? k : YamlString(k);
+
+    private static string YamlString(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n") + "\"";
+
+    private static string YamlScalar(object? v) => v switch
+    {
+        null => "null",
+        bool b => b ? "true" : "false",
+        string s => YamlString(s),
+        float f => float.IsFinite(f) ? f.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : float.IsNaN(f) ? ".nan" : f > 0 ? ".inf" : "-.inf",
+        double d => double.IsFinite(d) ? d.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : double.IsNaN(d) ? ".nan" : d > 0 ? ".inf" : "-.inf",
+        byte[] b => "!!binary " + Convert.ToBase64String(b),
+        BymlDict => "{}",
+        BymlArray => "[]",
+        BymlHashMap => "{}",
+        IFormattable x => x.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        _ => v.ToString() ?? "",
+    };
+
     private static bool IsScalarArray(object? v) => v is BymlArray a && a.Count <= 8 && a.All(x => x is not BymlDict and not BymlArray and not BymlHashMap);
 
     private static string Summary(object? v) => v switch

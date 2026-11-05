@@ -111,12 +111,21 @@ root.Subcommands.Add(scan);
 var dumpPath = new Argument<string>("path") { Description = "romfs-relative path, e.g. Banc/PathAdditionalData/Race_Cinema_A_00.byml" };
 var dumpDepth = new Option<int>("--depth") { Description = "Maximum depth to print.", DefaultValueFactory = _ => 6 };
 var dumpItems = new Option<int>("--items") { Description = "Maximum array items to print per array.", DefaultValueFactory = _ => 4 };
-var dump = new Command("dump", "Print a BYML file as an indented tree.") { dumpPath, dumpDepth, dumpItems };
+var dumpYaml = new Option<bool>("--yaml") { Description = "Print the whole file as plain YAML (no depth/item limits)." };
+var dump = new Command("dump", "Print a BYML file as an indented tree.") { dumpPath, dumpDepth, dumpItems, dumpYaml };
 dump.SetAction(parse =>
 {
     var fs = OpenFs(parse.GetValue(romfsOption));
     if (fs is null) return 1;
     var byml = MKWSatellite.Formats.Byml.BymlReader.Parse(fs.Read(parse.GetValue(dumpPath)!));
+    if (parse.GetValue(dumpYaml))
+    {
+        var w = new StreamWriter(Console.OpenStandardOutput(), new System.Text.UTF8Encoding(false)) { AutoFlush = false };
+        w.WriteLine($"# BYML v{byml.Version}: {parse.GetValue(dumpPath)}");
+        BymlText.WriteYaml(w, byml.Root);
+        w.Flush();
+        return 0;
+    }
     Console.WriteLine($"BYML v{byml.Version}");
     BymlText.Write(Console.Out, byml.Root, parse.GetValue(dumpDepth), parse.GetValue(dumpItems));
     return 0;
