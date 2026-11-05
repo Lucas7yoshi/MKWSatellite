@@ -375,10 +375,12 @@ public sealed class SatelliteApp : IDisposable
                 if (o.Info is { } info) ImGui.TextDisabled($"[{info.Category}] {info.Label}");
                 foreach (var link in o.IncomingLinks)
                 {
-                    var role = link.Source.Type switch
+                    var role = (link.Source.Type, link.LinkName) switch
                     {
-                        "SystemObj_CreateLinkArea_00" => "Spawned by area",
-                        "Area_DeleteLinkedActor_00" => "Linked from delete area (likely inert in 1.8)",
+                        ("SystemObj_CreateLinkArea_00", "CreateLink") =>
+                            $"Absent until a racer enters (gone {CreateLinkActiveSec(link.Source):0.#} s after the last one leaves):",
+                        ("SystemObj_CreateLinkArea_00", _) => $"Signalled ({link.LinkName}) when a racer enters",
+                        ("Area_DeleteLinkedActor_00", _) => "Linked from delete area (likely inert in 1.8)",
                         _ => $"Linked ({link.LinkName}) from",
                     };
                     ImGui.TextColored(new Vector4(1, 1, 0.5f, 1), $"{role} {link.Source.Type} at {link.Source.Position.X:0}, {link.Source.Position.Z:0}");
@@ -416,6 +418,10 @@ public sealed class SatelliteApp : IDisposable
         if (_view.Selected is not null && ImGui.Button("Clear selection")) { _view.Selected = null; _view.Invalidate(); }
         ImGui.End();
     }
+
+    /// <summary>CreateLinkArea's <c>ActiveSec</c>; the controller defaults to 600 frames (10 s) when absent.</summary>
+    private static float CreateLinkActiveSec(CourseObject area) =>
+        area.Actor.Dynamic?.TryGetValue("ActiveSec", out var v) == true && v is float f ? f : 10f;
 
     private static void Vec(string label, Vector3 v) => ImGui.Text($"{label,-13} {v.X,9:0.###} {v.Y,9:0.###} {v.Z,9:0.###}");
 

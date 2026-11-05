@@ -87,7 +87,7 @@ itself contains no dash panels.
 | Mechanism | What it does | Race impact |
 |---|---|---|
 | `Area_DeleteLinkedActor_00` | Developer label 「リンク先を削除するエリア（レインボー用）」: *area that deletes its link targets (for Rainbow)*. 13 placements (Rainbow race, `Rainbow_00_Fix`, Central→Rainbow route) with 682 `BasicSignal` links to the start section (station, start gate, solar panels, Thwomps, start dash/glide panels) and an audience group. | **Probably inert in 1.8.** Its `ActorGParam` has **no components** (no controller, no physics), only `BancDummyShape: Cube_c` for the editor, and the type name never appears in the executable. Nothing found that gives it behaviour; a generic link mechanism can't be ruled out. Shown, but not as a gameplay effect. |
-| `SystemObj_CreateLinkArea_00` | Label 「生成リンクエリア」: *spawn-link area*. Unlike the delete area it is a real actor: controller `game::Obj_CreateLinkArea_Controller`, `IsSyncRaceFrame: true`, own physics and Banc params. Creates its `CreateLink` targets. The controller's code was not located (its name is not stored as a string). | `Race_DinoBones_A_00`: one boost ring (`CmnObj_AccelRing000_A_00` at -1707, 625, -4686) is a spawn-link target. `Race_Central_C_00` has one with no links. Also used on open-world routes. |
+| `SystemObj_CreateLinkArea_00` | Label 「生成リンクエリア」: *spawn-link area*. Real actor (controller `game::Obj_CreateLinkArea_Controller`, `IsSyncRaceFrame: true`, a Phive sensor box). **Traced in code (see below).** Targets of its `CreateLink` links are flagged at link resolution and **do not exist until a racer enters the area**; they then appear, staggered by distance, and are removed `ActiveSec` seconds after the last racer leaves. | Base world tiles (loaded in races): 95 areas, all linking to boost rings (`ActiveSec` 3, 10 or 30). On race paths: `Race_Central_A_00` 3, `Race_StormClouds_A_00` 2 (`1212`), `Race_SnowMountain_A_00` 2 (`WorldResident`, 30 s). The other 88 form a long ring run at Z ≈ 2870–3290 (tiles `0611`/`0711`/`0811`/`WorldResident`) that is on no race path; its west end is 140–400 units from `Race_WestCity_D_00`'s paths. `Race_DinoBones_A_00`: one glide boost ring (default 10 s). `Race_Central_C_00`: one with no links (does nothing). Free-roam (`-Free`): 41, mostly coins, coin bars and barrel cannons. |
 | `Marking: ["RoadDeco"]` | The placement parser sets bit 0x08 of the placement flags (`+0x150`) when `Marking` contains `"RoadDeco"` (verified in code). 10,135 world actors: guardrails, reflectors, bollards, street lights, 296 dash panels from `Auto_Game03_RoadTool`. Reader of the bit not traced. | **None on race lines**: no RoadDeco dash/glide/jump object is within 40 units of any race's lap path. They decorate the open-world roads used by the routes between courses. |
 | `ScreenSetting {Single, Double, Quadruple}` | Verified in code. Each placement has 4 mode bytes (`+0x148` Single, `+0x149` Double, `+0x14A` never written, `+0x14B` Quadruple), all starting at 1. Value 1 sets bit 0x2, value 2 sets bit 0x4; `Double` is also applied to the Quadruple byte. At creation the game picks the byte by screen count (1 → Single, 2 → Double, 3 or 4 → Quadruple) and **does not create the object if bit 0x2 is set**. With one screen the check is skipped entirely unless a global debug/config flag is set. No reader of bit 0x4 (value 2) was found. | **Value 1 = removed in that split-screen mode; no effect in single-player (time trials).** In 2P/3P/4P races, 705 race-scene objects disappear: audience, flags, Boos on Boo Cinema / Ghost Valley (15/9/5), snowboards on DK Pass (22), traffic cars on 17 race layouts (e.g. 11 on `MooMooFarm_A`, 16 on `WestCity_A`), oil drums. World: 802 (birds, seagulls, eagles, hologram signs). Value 2 (wooden fences etc., 200 world objects) has no known effect. |
 | `SystemObj_ForbidObjAutoGenerateArea_00` | Label: *object auto-generation forbidden area*. 25, world only. | Affects auto-generated free-roam objects; none in race scenes. |
@@ -104,7 +104,9 @@ Every object keeps its source layer, its actor-database label, and incoming link
 area"), all shown in the inspector.
 
 ## Open questions (do not present as fact)
-- Whether anything reads `Area_DeleteLinkedActor_00` at all (no components, no name in code), and the `CreateLinkArea` trigger.
+- Whether anything reads `Area_DeleteLinkedActor_00` at all (no components, no name in code).
+- `CreateLinkArea`: which racers count (the stay-active check wants a contact whose flag `&2` is set; probably
+  players, maybe CPUs) and the exact bit meanings of the target's spawn byte (`+0x151`).
 - Who reads the RoadDeco flag and what it changes (only relevant off race lines).
 - `ScreenSetting` value 2 (bit 0x4): no reader found.
 - Dash panel facing: Boo Cinema's world dash panels face against the lap direction (see banc.md). Dash panels have
@@ -125,5 +127,27 @@ IDA names given in the 1.8 database: `WorldTile_RequestLoad` (0x7100756F20), `Wo
 (0x71005B6D80), `WorldMgr_UpdateFreeLayerState` (0x71005B12B0), `GameScene_StartWorldLoad` (0x71008A8440),
 `GameScene_UpdateWorldState` (0x71005B3940), `StageScene_LoadBanc` (0x7100362670), `RailGraph_ParseRail`
 (0x710029AD70), `BancPlacement_ParseTransformMarkingScreen` (0x710029B9F0), `WorldTile_IndexRespawnPoints`
-(0x710079B2A0), `WorldTile_CreateCollects_ScreenFiltered` (0x710079A0E0), `Placement_UpdateScreenSettingHidden`
+(0x710079B2A0), the CreateLinkArea functions in the section below, `WorldTile_CreateCollects_ScreenFiltered` (0x710079A0E0), `Placement_UpdateScreenSettingHidden`
 (0x71009FC1F0); ScreenSetting checks are also commented at 0x7100DBF61C, 0x7100AFB080, 0x71007F308C.
+
+## `SystemObj_CreateLinkArea_00` (traced in 1.8)
+Controllers are created through a factory keyed by **32-bit MurmurHash3 (seed 0) of the `CtrlName`** (here
+`0x7433595B`, registered at 0x7100EBB390, creator 0x7100E4A740, vtable 0x71035CCB98). `Dynamic` keys are read by the
+same hash. Gyml `$type`s use a seeded MurmurHash64A instead (e.g. `game__ObjectGParam`).
+
+1. **Link resolution** (`BancLinks_ResolveTargets`, 0x71002A1730): a link named `CreateLink` (mm3 `0x98AE835B`) sets
+   bits in the target placement's spawn byte `+0x151` so the target is not created with its tile.
+2. **Trigger** (`CreateLinkArea_OnEnter`, 0x7102238610, vtable +0x2E8; ignored while already active): for every
+   linked target it takes the distance from the entering racer, then delay = `WaitFrame` +
+   `MaxDelayFrame` × (d − d<sub>min</sub>) / (d<sub>max</sub> − d<sub>min</sub>) frames (nearest first; both default 0, so
+   without them everything appears at once). Targets of type `CmnObj_Coin001_A_00` also get an extra tracker
+   object. Then `CreateLinkArea_StartTimer` (0x7102238A40): timer = `ActiveSec` × 60 frames, **default 600 (10 s)**.
+3. **Per frame** (`CreateLinkArea_SpawnDue`, 0x7102238500): each target whose delay has passed gets its spawn
+   byte set.
+4. **Update** (`CreateLinkArea_Update`, 0x7100EC2C00): while a qualifying racer is still inside, the timer does not
+   run; otherwise it counts down. At 0 (and with no tracked `Coin001` object within 200 units) it deactivates and
+   the targets are removed. It also sends a signal (`0x0BA869BB`, name unknown) on activate/deactivate, which is
+   presumably what `BasicSignal` targets (12 links: rings, barrel cannons) react to.
+
+So for runners: a boost ring linked from one of these areas is **not there** on approach until someone drives
+into the area, and on later laps it is only still there if someone touched the area within `ActiveSec`.

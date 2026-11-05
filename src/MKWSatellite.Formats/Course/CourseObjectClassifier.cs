@@ -34,7 +34,7 @@ public static class CourseObjectClassifier
             ["SystemObj_RideKeepOutArea_00"] = (ObjectCategory.RuleArea, "Ride keep-out area (wall)"),
             ["Area_ItemCrasher"] = (ObjectCategory.RuleArea, "Item destroying area (box)"),
             ["Area_DeleteLinkedActor_00"] = (ObjectCategory.LinkArea, "Area that deletes its link targets (for Rainbow)"),
-            ["SystemObj_CreateLinkArea_00"] = (ObjectCategory.LinkArea, "Spawn-link area (creates its link targets)"),
+            ["SystemObj_CreateLinkArea_00"] = (ObjectCategory.LinkArea, "Spawn-link area: its CreateLink targets appear when a racer enters, staggered by distance"),
             ["SystemObj_RainbowEnterPoint_00"] = (ObjectCategory.RecoveryPoint, "Rainbow entry designation (links to a lap path point)"),
             ["SystemObj_RainbowWarpPoint_00"] = (ObjectCategory.RecoveryPoint, "Rainbow warp destination (links to a lap path point)"),
             ["StartPosition"] = (ObjectCategory.StartPosition, "Start position"),
