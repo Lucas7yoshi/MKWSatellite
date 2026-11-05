@@ -22,7 +22,8 @@ namespace MKWSatellite.App
 {
     /// <summary>
     /// Command line: <c>MKWSatellite [romfs...] [--course &lt;name part&gt;] [--screenshot &lt;out.png&gt;] [--size WxH]
-    /// [--3d] [--orbit yawDeg,pitchDeg[,distance]] [--no-models] [--ui-scale N]</c>.
+    /// [--3d] [--orbit yawDeg,pitchDeg[,distance]] [--no-models] [--ui-scale N] [--no-ui] [--layer Field=0|1]...</c>.
+    /// <c>--layer</c> sets any public bool field of <c>ViewLayers</c> (e.g. <c>AiRoutes=0</c>); <c>--no-ui</c> hides the panels.
     /// Positional arguments are romfs layers (base first) and override the configured ones.
     /// </summary>
     public sealed record AppOptions(IReadOnlyList<string> Romfs, string? Course, string? Screenshot, int Width, int Height)
@@ -35,6 +36,10 @@ namespace MKWSatellite.App
         public bool SizeGiven { get; init; }
         /// <summary>Initial 3D camera: yaw and pitch in degrees, distance (0 = framed).</summary>
         public System.Numerics.Vector3? Orbit { get; init; }
+        /// <summary>Hide the side panels (map-only screenshots).</summary>
+        public bool NoUi { get; init; }
+        /// <summary>Layer overrides from --layer Field=0|1.</summary>
+        public IReadOnlyList<(string Field, bool Value)> Layers { get; init; } = [];
 
         public bool IsScreenshot => Screenshot is not null;
 
@@ -47,6 +52,8 @@ namespace MKWSatellite.App
             float? uiScale = null;
             var sizeGiven = false;
             System.Numerics.Vector3? orbit = null;
+            var noUi = false;
+            var layers = new List<(string, bool)>();
             for (var i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -62,6 +69,11 @@ namespace MKWSatellite.App
                     case "--3d": view3d = true; break;
                     case "--ui-scale" when i + 1 < args.Length: uiScale = float.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture); break;
                     case "--no-models": noModels = true; break;
+                    case "--no-ui": noUi = true; break;
+                    case "--layer" when i + 1 < args.Length:
+                        var kv = args[++i].Split('=');
+                        layers.Add((kv[0], kv.Length < 2 || kv[1] is "1" or "true" or "on"));
+                        break;
                     case "--orbit" when i + 1 < args.Length:
                         var o = args[++i].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
                         orbit = new System.Numerics.Vector3(o[0], o.Length > 1 ? o[1] : 45, o.Length > 2 ? o[2] : 0);
@@ -69,7 +81,7 @@ namespace MKWSatellite.App
                     default: romfs.Add(args[i]); break;
                 }
             }
-            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, NoModels = noModels, Orbit = orbit, UiScale = uiScale, SizeGiven = sizeGiven };
+            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, NoModels = noModels, Orbit = orbit, UiScale = uiScale, SizeGiven = sizeGiven, NoUi = noUi, Layers = layers };
         }
     }
 }

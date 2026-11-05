@@ -23,8 +23,8 @@ public sealed partial class SatelliteApp : IDisposable
 {
     private const float BaseLeftPanelWidth = 330, BaseRightPanelWidth = 380;
     private float _uiScale = 1, _textScale = 1;
-    private float LeftPanelWidth => BaseLeftPanelWidth * _uiScale * _textScale;
-    private float RightPanelWidth => BaseRightPanelWidth * _uiScale * _textScale;
+    private float LeftPanelWidth => _options.NoUi ? 0 : BaseLeftPanelWidth * _uiScale * _textScale;
+    private float RightPanelWidth => _options.NoUi ? 0 : BaseRightPanelWidth * _uiScale * _textScale;
 
     private readonly IWindow _window;
     private readonly AppOptions _options;
@@ -98,6 +98,11 @@ public sealed partial class SatelliteApp : IDisposable
         }
         _use3D = _options.View3D;
         if (_options.NoModels) _view.Layers.Models = false;
+        foreach (var (field, value) in _options.Layers)
+        {
+            if (typeof(ViewLayers).GetField(field) is { FieldType: var t } f && t == typeof(bool)) f.SetValue(_view.Layers, value);
+            else Console.Error.WriteLine($"--layer: no bool layer named {field}");
+        }
         UpdateViewportRect();
         if (_options.Course is { } c)
         {
@@ -355,8 +360,11 @@ public sealed partial class SatelliteApp : IDisposable
         dl.PopClipRect();
         DrawHoverTooltip();
 
-        DrawLeftPanel();
-        DrawInspector();
+        if (!_options.NoUi)
+        {
+            DrawLeftPanel();
+            DrawInspector();
+        }
         DrawDiscardPopup();
 
         _imgui.Render();
