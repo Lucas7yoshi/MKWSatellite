@@ -86,10 +86,10 @@ itself contains no dash panels.
 
 | Mechanism | What it does | Race impact |
 |---|---|---|
-| `Area_DeleteLinkedActor_00` | Developer label 「リンク先を削除するエリア（レインボー用）」: *area that deletes its link targets (for Rainbow)*. Used only in `Race_Rainbow_A_00`, `Rainbow_00_Fix` and the Central→Rainbow route. | Rainbow only. The areas cover the lower course (Y ≈ 2250–2970) and link to the **start section** (space station model, start lap gate, solar panels, Thwomps, start dash/glide panels at Y ≈ 4950) and one audience group. They unload the start area once you're down the course. Trigger semantics (player entering?) not traced. |
-| `SystemObj_CreateLinkArea_00` | Label 「生成リンクエリア」: *spawn-link area*, creates its `CreateLink`/`BasicSignal` targets. | `Race_DinoBones_A_00`: one boost ring (`CmnObj_AccelRing000_A_00` at -1707, 625, -4686) is a spawn-link target. `Race_Central_C_00` has one with no links. Also used on open-world routes. |
+| `Area_DeleteLinkedActor_00` | Developer label 「リンク先を削除するエリア（レインボー用）」: *area that deletes its link targets (for Rainbow)*. 13 placements (Rainbow race, `Rainbow_00_Fix`, Central→Rainbow route) with 682 `BasicSignal` links to the start section (station, start gate, solar panels, Thwomps, start dash/glide panels) and an audience group. | **Probably inert in 1.8.** Its `ActorGParam` has **no components** (no controller, no physics), only `BancDummyShape: Cube_c` for the editor, and the type name never appears in the executable. Nothing found that gives it behaviour; a generic link mechanism can't be ruled out. Shown, but not as a gameplay effect. |
+| `SystemObj_CreateLinkArea_00` | Label 「生成リンクエリア」: *spawn-link area*. Unlike the delete area it is a real actor: controller `game::Obj_CreateLinkArea_Controller`, `IsSyncRaceFrame: true`, own physics and Banc params. Creates its `CreateLink` targets. The controller's code was not located (its name is not stored as a string). | `Race_DinoBones_A_00`: one boost ring (`CmnObj_AccelRing000_A_00` at -1707, 625, -4686) is a spawn-link target. `Race_Central_C_00` has one with no links. Also used on open-world routes. |
 | `Marking: ["RoadDeco"]` | The placement parser sets bit 0x08 of the placement flags (`+0x150`) when `Marking` contains `"RoadDeco"` (verified in code). 10,135 world actors: guardrails, reflectors, bollards, street lights, 296 dash panels from `Auto_Game03_RoadTool`. Reader of the bit not traced. | **None on race lines**: no RoadDeco dash/glide/jump object is within 40 units of any race's lap path. They decorate the open-world roads used by the routes between courses. |
-| `ScreenSetting {Single, Double, Quadruple}` | Per split-screen-mode values parsed into flag bytes `+0x148..+0x14B` (verified in code). 1,012 world actors, e.g. birds/seagulls/eagles `{Double: 1, Quadruple: 1}`, wooden fences `2` in all modes. Meaning of 1 vs 2 not traced. | Can make objects differ between 1-, 2- and 4-player screens. Time trials are single-screen. Shown in the inspector. |
+| `ScreenSetting {Single, Double, Quadruple}` | Verified in code. Each placement has 4 mode bytes (`+0x148` Single, `+0x149` Double, `+0x14A` never written, `+0x14B` Quadruple), all starting at 1. Value 1 sets bit 0x2, value 2 sets bit 0x4; `Double` is also applied to the Quadruple byte. At creation the game picks the byte by screen count (1 → Single, 2 → Double, 3 or 4 → Quadruple) and **does not create the object if bit 0x2 is set**. With one screen the check is skipped entirely unless a global debug/config flag is set. No reader of bit 0x4 (value 2) was found. | **Value 1 = removed in that split-screen mode; no effect in single-player (time trials).** In 2P/3P/4P races, 705 race-scene objects disappear: audience, flags, Boos on Boo Cinema / Ghost Valley (15/9/5), snowboards on DK Pass (22), traffic cars on 17 race layouts (e.g. 11 on `MooMooFarm_A`, 16 on `WestCity_A`), oil drums. World: 802 (birds, seagulls, eagles, hologram signs). Value 2 (wooden fences etc., 200 world objects) has no known effect. |
 | `SystemObj_ForbidObjAutoGenerateArea_00` | Label: *object auto-generation forbidden area*. 25, world only. | Affects auto-generated free-roam objects; none in race scenes. |
 
 ## What the viewer does with this
@@ -104,12 +104,19 @@ Every object keeps its source layer, its actor-database label, and incoming link
 area"), all shown in the inspector.
 
 ## Open questions (do not present as fact)
-- Exact trigger of `Area_DeleteLinkedActor_00` / `CreateLinkArea` (player enters? any racer? CPU?).
+- Whether anything reads `Area_DeleteLinkedActor_00` at all (no components, no name in code), and the `CreateLinkArea` trigger.
 - Who reads the RoadDeco flag and what it changes (only relevant off race lines).
-- `ScreenSetting` value meanings.
-- Dash panel facing: Boo Cinema's world dash panels face against the lap direction (see banc.md). Possibly flipped
-  at runtime by travel direction (user's hypothesis). Shown as stored.
-- `SystemObj_RespawnPoint_00` (「リスポーン地点」) in the base world near courses: whether races use it or only free roam.
+- `ScreenSetting` value 2 (bit 0x4): no reader found.
+- Dash panel facing: Boo Cinema's world dash panels face against the lap direction (see banc.md). Dash panels have
+  **no controller** (`ActorGParam` components are only model, effect link, physics), so nothing can turn them at runtime.
+  The boost comes from a Phive sensor body `<Type>_Zone` on layer `VehicleArea` (plus a `Ground` rigid body). The sensor
+  params carry no direction, so the boost direction is probably decided by the kart code (likely the kart's own
+  heading), which would make panel facing irrelevant. Not traced into the kart code; the `_Zone` shapes
+  (`Phive/Shape/...`) are the real trigger footprint and worth drawing once Phive shapes are parsed.
+- `SystemObj_RespawnPoint_00` (「リスポーン地点」, no components): the world-tile loader
+  (`WorldTile_IndexRespawnPoints`, 0x710079B2A0) indexes every one into a 64×64 grid of 250-unit cells covering
+  -8000..8000 in X/Z, in every mode (base world). The code that queries that grid was not found, so whether races use
+  it for Lakitu is still open.
 - `Banc/PathAdditionalData/<scene>.byml`: per-point precomputed data in hash-map nodes
   (keys `CH`, `CHHit`, `CHNum`, `SD`, `ST`, `VDP`, `WDM`, `HS`). Not decoded.
 
@@ -117,4 +124,6 @@ IDA names given in the 1.8 database: `WorldTile_RequestLoad` (0x7100756F20), `Wo
 `SceneRes_LoadResolveFix` (0x7100757260), `WorldLayer_UpdateTileLoads` (0x71005B4460), `WorldMgr_LoadWorld`
 (0x71005B6D80), `WorldMgr_UpdateFreeLayerState` (0x71005B12B0), `GameScene_StartWorldLoad` (0x71008A8440),
 `GameScene_UpdateWorldState` (0x71005B3940), `StageScene_LoadBanc` (0x7100362670), `RailGraph_ParseRail`
-(0x710029AD70), `BancPlacement_ParseTransformMarkingScreen` (0x710029B9F0).
+(0x710029AD70), `BancPlacement_ParseTransformMarkingScreen` (0x710029B9F0), `WorldTile_IndexRespawnPoints`
+(0x710079B2A0), `WorldTile_CreateCollects_ScreenFiltered` (0x710079A0E0), `Placement_UpdateScreenSettingHidden`
+(0x71009FC1F0); ScreenSetting checks are also commented at 0x7100DBF61C, 0x7100AFB080, 0x71007F308C.

@@ -16,6 +16,14 @@ tree. `NNN` is the content version (180 = 1.8.0). Read with `mkwsat dump RSDB/<f
 | `Scene` | 3 | `Boot`, `Game03` (the product game scene), `Game03ForConnection`. |
 | others | | `Tag`, `TagDef`, `XLinkProperty*`, `StickerInfo`, `ComSetting` (CPU levels incl. ghost), `GraphRailDefine`, … (not used yet) |
 
+## Actor parameters (`System/GymlArchive/*.sarc.zs`)
+Not RSDB, but the next step from an `Actor` row: SARC archives of binary gyml (BYML). `actor_general_format` holds
+`Gyml/ActorGParam/<Type>.gear__ActorGParam.bgyml` with `$parent`, `Label`, `BancDummyShape` (editor shape, e.g.
+`Cube_c`, `Cone_z`) and `Components` (refs to `ObjectGParam` with the controller class `CtrlName`, `PhysicsGParam`,
+`ExistConditionGParam`, `ModelInfoGParam`, …). `phive_general_format` holds the Phive rigid body / sensor params
+(e.g. dash panels: a `Ground` body and a `<Type>_Zone` sensor on layer `VehicleArea`). An actor with no components
+(e.g. `Area_DeleteLinkedActor_00`, `SystemObj_RespawnPoint_00`) has no behaviour of its own.
+
 ## Policy
 Labels are game text: the repo only contains the English glosses we wrote for the handful of system types the
 viewer names (`CourseObjectClassifier.SystemTypes`). The app reads the labels from the user's dump at runtime and

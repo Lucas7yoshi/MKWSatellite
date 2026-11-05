@@ -378,13 +378,13 @@ public sealed class SatelliteApp : IDisposable
                     var role = link.Source.Type switch
                     {
                         "SystemObj_CreateLinkArea_00" => "Spawned by area",
-                        "Area_DeleteLinkedActor_00" => "Deleted by area",
+                        "Area_DeleteLinkedActor_00" => "Linked from delete area (likely inert in 1.8)",
                         _ => $"Linked ({link.LinkName}) from",
                     };
                     ImGui.TextColored(new Vector4(1, 1, 0.5f, 1), $"{role} {link.Source.Type} at {link.Source.Position.X:0}, {link.Source.Position.Z:0}");
                 }
                 if (o.Actor.Raw.Dict("ScreenSetting") is { } screens)
-                    ImGui.TextColored(new Vector4(0.6f, 0.8f, 1, 1), "Split-screen setting: " + string.Join(", ", screens.Select(kv => $"{kv.Key}={kv.Value}")) + " (meaning of values unverified)");
+                    ImGui.TextColored(new Vector4(0.6f, 0.8f, 1, 1), "Split-screen: " + string.Join(", ", screens.Select(kv => $"{kv.Key}={kv.Value}")) + "  (1 = not spawned in that mode; ignored in single-player)");
                 Vec("Position", o.Position);
                 Vec("Rotate (deg)", o.Actor.Rotate * (180f / MathF.PI));
                 Vec("Scale", o.Actor.Scale);
