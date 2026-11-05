@@ -495,3 +495,5 @@ exefs/
 *.bphsh.zs
 *.bphsc.zs
 out/
+# Console keys. Never commit.
+*.keys
