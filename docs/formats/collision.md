@@ -111,5 +111,22 @@ Reading a course takes 0.1–0.5 s. DK Summit's snowy road is `Slip`/`Snow`, whi
 - Hovering shows the material, surface, tags, layer and position under the cursor.
 - Screenshots: `--layer Collision=1 [--layer CollisionBySurface=1]`.
 
+## Vehicle hitboxes (bonus, **unverified**)
+
+Vehicles have no Phive shape: their PhysicsGParam (`VehicleBase`) is just `IsVehicle: true` with an empty
+`ControllerSetResourcePath`. The data that looks like a hitbox is in `System/GymlArchive/general_format` →
+`Gyml/CustomizerVehicleInfoGParam/<Vehicle>.game__CustomizerVehicleInfoGParam`, `ExtraParam`:
+- `LocalCollisionBox`: `BodySize`, `CabinOffset` + `CabinSize`, `FloatOffset` + `FloatSize` (vec3s). `Common` gives
+  body 1 × 0.1 × 1, cabin 0.5³ at +0.5 Y. 14 of 71 entries override it (e.g. `Vehicle_Rcc_00` body 1.12 × 0.3 × 1.99).
+- `AxleData[].TireData`: `Radius`, `Width` (+ dirt scales) per axle.
+
+`mkwsat vehicles` lists these. Not known yet:
+- whether sizes are half or full extents;
+- the units and the per-vehicle scale;
+- how the code builds the rigid body. The executable has `game__VehicleRigidBodyShapeGParam` and
+  `game__VehicleLocalRigidBodyGParam` types with no data files, so their values may be code defaults.
+
+Character (driver) Phive params are cloth/helper bones (`HelperBoneParam`), not hitboxes. Not drawn in the viewer.
+
 Not done: dynamic actors' own collision (only what is baked into the compounds), `World_Game03_Water`/`_Foliage`, and
 kart/character hitboxes.

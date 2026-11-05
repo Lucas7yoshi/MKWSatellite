@@ -1,4 +1,5 @@
 ﻿using System.CommandLine;
+using MKWSatellite.Formats.Byml;
 using MKWSatellite.Formats.Configuration;
 using MKWSatellite.Formats.Course;
 using MKWSatellite.Formats.IO;
@@ -609,6 +610,47 @@ colCmd.SetAction(parse =>
     return 0;
 });
 root.Subcommands.Add(colCmd);
+
+// vehicles: each vehicle's local collision boxes and tyres (CustomizerVehicleInfoGParam, ExtraParam)
+var vehCmd = new Command("vehicles", "List each vehicle's collision boxes and tyres (CustomizerVehicleInfoGParam; meaning unverified).");
+vehCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    const string dir = "System/GymlArchive";
+    var archive = fs.ListFiles(dir, "general_format.*.sarc.zs").LastOrDefault();
+    if (archive is null) { Console.Error.WriteLine("no general_format archive"); return 1; }
+    var sarc = new MKWSatellite.Formats.Archives.Sarc(fs.Read($"{dir}/{archive}"));
+    BymlDict? Load(string? work)
+    {
+        if (work is null) return null;
+        var name = work.StartsWith("Work/", StringComparison.Ordinal) ? work[5..] : work;
+        if (name.EndsWith(".gyml", StringComparison.Ordinal)) name = name[..^5] + ".bgyml";
+        return sarc.TryGet(name, out var b) ? BymlReader.Parse(b.ToArray()).Root as BymlDict : null;
+    }
+    // A field of ExtraParam.<group>, taken from the nearest file in the $parent chain that has it.
+    object? Field(BymlDict file, string group, string key)
+    {
+        for (var (d, depth) = (file, 0); d is not null && depth < 16; d = Load(d.Get<string>("$parent")), depth++)
+            if (d.Dict("ExtraParam")?.Dict(group) is { } g && g.TryGetValue(key, out var v)) return v;
+        return null;
+    }
+    static string V(object? o) => o is BymlDict d
+        ? FormattableString.Invariant($"{d.Get<float>("X"),5:0.##} {d.Get<float>("Y"),5:0.##} {d.Get<float>("Z"),5:0.##}") : "-";
+    const string prefix = "Gyml/CustomizerVehicleInfoGParam/";
+    Console.WriteLine($"{"vehicle",-16} {"BodySize",-18} {"CabinOffset",-18} {"CabinSize",-18} tyres (radius x width)");
+    foreach (var n in sarc.FileNames.Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).Order())
+    {
+        if (Load(n) is not { } f) continue;
+        var tyres = (f.Dict("ExtraParam")?.Array("AxleData")?.OfType<BymlDict>() ?? [])
+            .Select(a => a.Dict("TireData")).OfType<BymlDict>()
+            .Select(t => FormattableString.Invariant($"{t.Get<float>("Radius"):0.###}x{t.Get<float>("Width"):0.###}"));
+        Console.WriteLine($"{n[prefix.Length..].Split('.')[0],-16} {V(Field(f, "LocalCollisionBox", "BodySize")),-18} " +
+                          $"{V(Field(f, "LocalCollisionBox", "CabinOffset")),-18} {V(Field(f, "LocalCollisionBox", "CabinSize")),-18} {string.Join(" ", tyres)}");
+    }
+    return 0;
+});
+root.Subcommands.Add(vehCmd);
 
 return root.Parse(args).Invoke();
 
