@@ -22,9 +22,9 @@ namespace MKWSatellite.App;
 public sealed class SatelliteApp : IDisposable
 {
     private const float BaseLeftPanelWidth = 330, BaseRightPanelWidth = 380;
-    private float _uiScale = 1;
-    private float LeftPanelWidth => BaseLeftPanelWidth * _uiScale * ImGui.GetIO().FontGlobalScale;
-    private float RightPanelWidth => BaseRightPanelWidth * _uiScale * ImGui.GetIO().FontGlobalScale;
+    private float _uiScale = 1, _textScale = 1;
+    private float LeftPanelWidth => BaseLeftPanelWidth * _uiScale * _textScale;
+    private float RightPanelWidth => BaseRightPanelWidth * _uiScale * _textScale;
 
     private readonly IWindow _window;
     private readonly AppOptions _options;
@@ -79,13 +79,13 @@ public sealed class SatelliteApp : IDisposable
     {
         _gl = _window.CreateOpenGL();
         _input = _window.CreateInput();
-        _uiScale = _options.UiScale ?? AutoUiScale();
-        _imgui = CreateImGui(_uiScale);
-        ImGui.GetStyle().WindowRounding = 0;
-        ImGui.GetStyle().ScaleAllSizes(_uiScale);
         _batch = new PrimitiveBatch(_gl);
         _view = new CourseView(_batch);
-        _view.Layers.LineScale = _uiScale;
+        // Screenshots are pixel-exact (scale 1 unless --ui-scale); the interactive window follows Windows' display scale
+        // and, like a normal app, opens at the requested size times that scale.
+        var scale = _options.UiScale ?? (_options.IsScreenshot ? 1f : SystemUiScale());
+        if (!_options.IsScreenshot && !_options.SizeGiven && scale > 1.01f) ResizeWindow(scale);
+        ApplyUiScale(scale);
         foreach (var m in _input.Mice) m.Scroll += OnScroll;
         OpenGame();
         if (_fs is not null)
@@ -105,26 +105,63 @@ public sealed class SatelliteApp : IDisposable
         }
     }
 
-    /// <summary>UI scale from the monitor height (1080p = 1), rounded to quarters. Override with --ui-scale.</summary>
-    private float AutoUiScale()
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
+
+    /// <summary>
+    /// The Windows display scale of the monitor the window is on (DPI / 96, e.g. 1.5 for 150%), like a normal Windows
+    /// app. Elsewhere, falls back to the monitor height (1080p = 1). Override with --ui-scale.
+    /// </summary>
+    private float SystemUiScale()
     {
+        if (OperatingSystem.IsWindows() && _window.Native?.Win32 is { } w)
+        {
+            var dpi = GetDpiForWindow(w.Hwnd);
+            if (dpi > 0) return dpi / 96f;
+        }
         var h = _window.Monitor?.VideoMode.Resolution?.Y ?? 1080;
         return Math.Clamp(MathF.Round(h / 1080f * 4) / 4, 1f, 3f);
     }
 
-    /// <summary>
-    /// ImGui with a crisp font at the UI scale: Consolas (monospace keeps the inspector's columns aligned) from the
-    /// system font folder if present, else ImGui's built-in font scaled up.
-    /// </summary>
-    private ImGuiController CreateImGui(float scale)
+    /// <summary>Scales the window size (as Windows does for DPI-aware apps), kept within the current monitor.</summary>
+    private void ResizeWindow(float factor)
     {
-        var font = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "consola.ttf");
-        if (File.Exists(font))
-            return new ImGuiController(_gl, _window, _input, new ImGuiFontConfig(font, (int)MathF.Round(14 * scale)));
-        var c = new ImGuiController(_gl, _window, _input);
-        ImGui.GetIO().FontGlobalScale = scale;
-        return c;
+        var size = _window.Size;
+        var w = (int)(size.X * factor);
+        var h = (int)(size.Y * factor);
+        if (_window.Monitor?.VideoMode.Resolution is { } res)
+        {
+            w = Math.Min(w, (int)(res.X * 0.95f));
+            h = Math.Min(h, (int)(res.Y * 0.9f));
+        }
+        _window.Size = new Silk.NET.Maths.Vector2D<int>(w, h);
     }
+
+    private bool _builtInFont;
+
+    /// <summary>
+    /// (Re)creates ImGui for a UI scale: a crisp font rasterised at that size (Consolas from the system font folder,
+    /// monospace keeps the inspector's columns aligned; else ImGui's built-in font scaled), scaled style sizes, and
+    /// line widths kept at the same multiplier the user chose.
+    /// </summary>
+    private void ApplyUiScale(float scale)
+    {
+        var lineMultiplier = _view.Layers.LineScale / _uiScale;
+        _imgui?.Dispose();
+        var font = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "consola.ttf");
+        _builtInFont = !File.Exists(font);
+        _imgui = _builtInFont
+            ? new ImGuiController(_gl, _window, _input)
+            : new ImGuiController(_gl, _window, _input, new ImGuiFontConfig(font, (int)MathF.Round(14 * scale)));
+        ImGui.GetStyle().WindowRounding = 0;
+        ImGui.GetStyle().ScaleAllSizes(scale);
+        _uiScale = scale;
+        ApplyTextScale();
+        _view.Layers.LineScale = lineMultiplier * scale;
+        _view.Invalidate();
+    }
+
+    private void ApplyTextScale() => ImGui.GetIO().FontGlobalScale = _textScale * (_builtInFont ? _uiScale : 1);
 
     private void OpenGame()
     {
@@ -263,6 +300,12 @@ public sealed class SatelliteApp : IDisposable
 
     private void OnRender(double delta)
     {
+        // Follow the display scale when the window moves to another monitor (unless fixed with --ui-scale).
+        if (_options.UiScale is null && !_options.IsScreenshot && _frame % 15 == 0 && SystemUiScale() is var s && MathF.Abs(s - _uiScale) > 0.01f)
+        {
+            ResizeWindow(s / _uiScale);
+            ApplyUiScale(s);
+        }
         _imgui.Update((float)delta);
         UpdateViewportRect();
         if (!_options.IsScreenshot) HandleMouse((float)delta);
@@ -459,9 +502,8 @@ public sealed class SatelliteApp : IDisposable
 
         ImGui.SetNextItemWidth(120 * _uiScale);
         if (ImGui.SliderFloat("Line / marker size", ref L.LineScale, 0.5f, 4f, "%.1fx")) changed = true;
-        var fs = ImGui.GetIO().FontGlobalScale;
         ImGui.SetNextItemWidth(120 * _uiScale);
-        if (ImGui.SliderFloat("Text size", ref fs, 0.6f, 2f, "%.1fx")) ImGui.GetIO().FontGlobalScale = fs;
+        if (ImGui.SliderFloat("Text size", ref _textScale, 0.6f, 2f, "%.1fx")) ApplyTextScale();
         ImGui.TextDisabled("Paths");
         Toggle("Lap path (coloured by height)", ref L.LapPath, Palette.Height(0.5f, 0, 1));
         Toggle("Checkpoint gates", ref L.CheckpointGates, Palette.CheckpointGate);

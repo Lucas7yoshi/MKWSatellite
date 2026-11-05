@@ -31,6 +31,8 @@ namespace MKWSatellite.App
         public bool NoModels { get; init; }
         /// <summary>UI scale (1 = 1080p); null = from the monitor resolution.</summary>
         public float? UiScale { get; init; }
+        /// <summary>True when --size was given (the window is then not resized for the display scale).</summary>
+        public bool SizeGiven { get; init; }
         /// <summary>Initial 3D camera: yaw and pitch in degrees, distance (0 = framed).</summary>
         public System.Numerics.Vector3? Orbit { get; init; }
 
@@ -43,6 +45,7 @@ namespace MKWSatellite.App
             int w = 1600, h = 900;
             bool view3d = false, noModels = false;
             float? uiScale = null;
+            var sizeGiven = false;
             System.Numerics.Vector3? orbit = null;
             for (var i = 0; i < args.Length; i++)
             {
@@ -52,6 +55,7 @@ namespace MKWSatellite.App
                     case "--screenshot" when i + 1 < args.Length: shot = args[++i]; break;
                     case "--size" when i + 1 < args.Length:
                         var parts = args[++i].Split('x');
+                        sizeGiven = true;
                         w = int.Parse(parts[0]);
                         h = int.Parse(parts[1]);
                         break;
@@ -65,7 +69,7 @@ namespace MKWSatellite.App
                     default: romfs.Add(args[i]); break;
                 }
             }
-            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, NoModels = noModels, Orbit = orbit, UiScale = uiScale };
+            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, NoModels = noModels, Orbit = orbit, UiScale = uiScale, SizeGiven = sizeGiven };
         }
     }
 }
