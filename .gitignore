@@ -497,3 +497,6 @@ exefs/
 out/
 # Console keys. Never commit.
 *.keys
+
+# Dear ImGui per-user window layout
+imgui.ini

@@ -30,3 +30,17 @@ User's call. Collision and editing deferred.
 
 ### D9. The 2D view is a real GL viewport with an orthographic camera (2026-11-05)
 Instead of ImGui draw-list lines. Slightly more work up front, but paths, gates and objects become geometry that the later 3D/model view reuses unchanged.
+
+### D10. A course = race scene + one static layer, never the free-roam world (2026-11-05)
+Verified in data and code (formats/scene-layers.md). The static layer is `<Course>_00_Fix` if it exists, else base-world
+tiles clipped to the race paths' 3D bounds (+250 units). Every object keeps its source layer so the UI can filter it.
+Alternatives (all world objects, or the race scene only) would clutter the view or miss the course's dash panels.
+
+### D11. Display categories are name-based; behaviour claims need code checks (2026-11-05)
+`CourseObjectClassifier` maps type names to categories for colour/toggles only. Anything a runner might rely on
+(facing, area sizes, what an area does) is labelled unverified in the UI/docs until traced in the 1.8 executable.
+
+### D12. Screenshots come from the real app (2026-11-05)
+`MKWSatellite --course <name> --screenshot out.png` renders the normal UI for a few frames and saves the back buffer
+(own PNG writer, no dependency). One rendering path for interactive and image use. Screenshots are derived from
+game data and are not committed.

@@ -9,6 +9,7 @@ Working notes kept alongside the code: what's done, why things are the way they 
 | [formats/romfs.md](formats/romfs.md) | Game dump layout, versions, updates, where things live |
 | [formats/byml.md](formats/byml.md) | BYML container format as implemented by our reader |
 | [formats/banc.md](formats/banc.md) | Banc course placement scenes (actors, rails, checkpoints) |
+| [formats/scene-layers.md](formats/scene-layers.md) | How a race course is assembled from scene layers (race scene, base world, `_Fix`); verified in code |
 | [formats/nsp.md](formats/nsp.md) | NSP/NCA notes from extracting a game dump |
 
 Conventions:

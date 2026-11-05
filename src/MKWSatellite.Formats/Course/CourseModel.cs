@@ -1,0 +1,121 @@
+using System.Numerics;
+using MKWSatellite.Formats.Byml;
+
+namespace MKWSatellite.Formats.Course;
+
+/// <summary>Which scene layer an object came from. See docs/formats/scene-layers.md.</summary>
+public enum CourseLayer
+{
+    /// <summary>The race scene (<c>Race_*.bcett</c>): lap path, items, respawns, start grid.</summary>
+    Race,
+    /// <summary>Base open-world tiles (<c>World_Game03/*</c>), clipped to the course bounds: course furniture.</summary>
+    World,
+    /// <summary>An off-world course's own static layer (<c>&lt;Course&gt;_00_Fix</c>, e.g. Rainbow Road).</summary>
+    CourseFix,
+}
+
+/// <summary>What an object is, for display. Derived from the actor type name; see <see cref="CourseObjectClassifier"/>.</summary>
+public enum ObjectCategory
+{
+    ItemBox,
+    Coin,
+    DashPanel,
+    GlideRamp,
+    BoostRing,
+    JumpRamp,
+    StartPosition,
+    LapGate,
+    RespawnArea,
+    ValleyArea,
+    KillArea,
+    HighSpeedArea,
+    OtherArea,
+    Hazard,
+    Fence,
+    Audience,
+    Other,
+}
+
+/// <summary>A placed actor in a course, tagged with its layer and category.</summary>
+public sealed record CourseObject(BancActor Actor, CourseLayer Layer, ObjectCategory Category)
+{
+    public string Type => Actor.Type;
+    public Vector3 Position => Actor.Translate;
+
+    /// <summary>Rotation from the actor's Euler angles (radians, applied X then Y then Z; same convention as rail points).</summary>
+    public Matrix4x4 Rotation => CourseMath.EulerXyz(Actor.Rotate);
+
+    /// <summary>True for box-shaped areas (editor <c>PrimitiveType</c> Cube/Box).</summary>
+    public bool IsArea => Category is ObjectCategory.RespawnArea or ObjectCategory.ValleyArea or ObjectCategory.KillArea
+        or ObjectCategory.HighSpeedArea or ObjectCategory.OtherArea;
+}
+
+/// <summary>A rail (path) with its layer.</summary>
+public sealed record CourseRail(BancRail Rail, CourseLayer Layer)
+{
+    public string Kind => Rail.Name;
+}
+
+/// <summary>
+/// A lap-path node with its gate rectangle. The game reads <c>RectSize</c>/<c>RectOffset</c> for every rail point
+/// (RailGraph_ParseRail, 1.8 0x710029AD70) into a rectangle in the point's local X/Y plane, so the gate faces local Z.
+/// The rectangle is treated as centred on (offset.X, offset.Y); that centring is inferred from the data, not traced.
+/// </summary>
+public sealed record LapPoint(BancRailPoint Point, CourseRail Rail, int Index)
+{
+    public Vector3 Position => Point.Translation;
+    public Vector2 RectSize => CourseMath.Vec2(Point.Raw.Array("RectSize"));
+    public Vector2 RectOffset => CourseMath.Vec2(Point.Raw.Array("RectOffset"));
+
+    /// <summary><c>Dynamic.CheckPoint</c>: checkpoint number, if this node is one. Meaning beyond the name is unverified.</summary>
+    public float? CheckPoint => Point.Dynamic?.TryGetValue("CheckPoint", out var v) == true && v is float f ? f : null;
+    public bool IsStart => Point.Dynamic?.Get<bool>("IsStart") == true;
+    public bool IsGoal => Point.Dynamic?.Get<bool>("IsGoal") == true;
+    public bool IsLapCheck => Point.Dynamic?.Get<bool>("IsLapCheck") == true;
+    public int? ChangeId => Point.Dynamic?.TryGetValue("ChangeId", out var v) == true && v is int i ? i : null;
+
+    /// <summary>The four gate corners in world space (bottom-left, bottom-right, top-right, top-left in local X/Y).</summary>
+    public Vector3[] GateCorners()
+    {
+        var m = CourseMath.EulerXyz(Point.Rotate);
+        var x = Vector3.TransformNormal(Vector3.UnitX, m);
+        var y = Vector3.TransformNormal(Vector3.UnitY, m);
+        var c = Position + x * RectOffset.X + y * RectOffset.Y;
+        var hx = x * (RectSize.X / 2);
+        var hy = y * (RectSize.Y / 2);
+        return [c - hx - hy, c + hx - hy, c + hx + hy, c - hx + hy];
+    }
+}
+
+/// <summary>A race course assembled from its scene layers.</summary>
+public sealed class CourseScene
+{
+    public required string Name { get; init; }
+    public required BancScene RaceScene { get; init; }
+    /// <summary>Static layer source description, e.g. "World_Game03 (37 tiles)" or "Rainbow_00_Fix".</summary>
+    public required string StaticLayerSource { get; init; }
+    public required IReadOnlyList<CourseObject> Objects { get; init; }
+    public required IReadOnlyList<CourseRail> Rails { get; init; }
+    public required IReadOnlyList<LapPoint> LapPoints { get; init; }
+    /// <summary>3D bounds of the race's lap and route paths (the area the course occupies).</summary>
+    public required (Vector3 Min, Vector3 Max) PathBounds { get; init; }
+
+    /// <summary>All rail points by hash, for following <c>Links</c> across rails.</summary>
+    public IReadOnlyDictionary<ulong, BancRailPoint> PointsByHash => _pointsByHash ??=
+        Rails.SelectMany(r => r.Rail.Points).GroupBy(p => p.Hash).ToDictionary(g => g.Key, g => g.First());
+    private Dictionary<ulong, BancRailPoint>? _pointsByHash;
+}
+
+public static class CourseMath
+{
+    /// <summary>
+    /// Rotation matrix for game Euler angles (radians): R = Rz * Ry * Rx (column-vector convention), i.e. rotate about
+    /// X first. Matches the up-vector computation in RailGraph_ParseRail. Returned as a System.Numerics row-vector
+    /// matrix, so use <see cref="Vector3.TransformNormal(Vector3, Matrix4x4)"/>.
+    /// </summary>
+    public static Matrix4x4 EulerXyz(Vector3 r) =>
+        Matrix4x4.CreateRotationX(r.X) * Matrix4x4.CreateRotationY(r.Y) * Matrix4x4.CreateRotationZ(r.Z);
+
+    internal static Vector2 Vec2(BymlArray? a) =>
+        a is { Count: >= 2 } ? new Vector2(Convert.ToSingle(a[0]), Convert.ToSingle(a[1])) : default;
+}

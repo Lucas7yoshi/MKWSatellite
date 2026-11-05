@@ -12,8 +12,8 @@ item boxes, AI routes and, later, collision surfaces.
 | Project | Purpose |
 |---|---|
 | `src/MKWSatellite.Formats` | Game file formats with no UI/GPU dependencies: zstd, BYML, romfs layering, Banc course scenes. Later: BFRES models, BNTX textures, Phive collision. |
-| `src/MKWSatellite.App` | Viewer: Silk.NET (OpenGL) + Dear ImGui. Currently a scene picker and a placeholder top-down preview. |
-| `src/MKWSatellite.Cli` | `mkwsat` command-line tools (`info`, `banc`). |
+| `src/MKWSatellite.App` | Viewer: Silk.NET (OpenGL) + Dear ImGui. Top-down 2D course view with layers, inspector and ruler. |
+| `src/MKWSatellite.Cli` | `mkwsat` command-line tools (`info`, `banc`, `scan`, `dump`, `course`). |
 | `tests/MKWSatellite.Formats.Tests` | Unit tests that run without game data. |
 
 ## Requirements
@@ -39,8 +39,14 @@ dotnet build
 dotnet test
 dotnet run --project src/MKWSatellite.Cli -- info
 dotnet run --project src/MKWSatellite.Cli -- banc "Race_Cinema_A_00[Game03].bcett.byml.zs"
+dotnet run --project src/MKWSatellite.Cli -- scan --filter Race_          # parse every scene, census of keys
+dotnet run --project src/MKWSatellite.Cli -- course Cinema_A               # assembled course summary
+dotnet run --project src/MKWSatellite.Cli -- dump Banc/PathAdditionalData/Race_Cinema_A_00.byml
 dotnet run --project src/MKWSatellite.App
+dotnet run --project src/MKWSatellite.App -- --course Rainbow --screenshot rainbow.png --size 1800x1050
 ```
+
+Viewer controls: left-drag pans, mouse wheel zooms, click selects (inspector on the right), right-drag measures.
 
 ## Docs
 

@@ -6,12 +6,12 @@ namespace MKWSatellite.Formats.Byml;
 /// <summary>
 /// Minimal read-only BYML reader (v2+, little or big endian).
 /// Produces a plain object tree: <see cref="BymlDict"/>, <see cref="BymlArray"/>, string, bool, int, uint,
-/// long, ulong, float, double, byte[] or null.
-/// TODO: hash-map node types (0x20/0x21) and other newer node types are not handled yet.
+/// <see cref="BymlHashMap"/>, long, ulong, float, double, byte[] or null.
+/// Hash maps (0x20/0x21) are read as <see cref="BymlHashMap"/>. Other newer node types throw.
 /// </summary>
 public sealed class BymlReader
 {
-    private const byte TString = 0xA0, TBinary = 0xA1, TArray = 0xC0, TDict = 0xC1, TStringTable = 0xC2,
+    private const byte TString = 0xA0, TBinary = 0xA1, TArray = 0xC0, TDict = 0xC1, THash32 = 0x20, THash64 = 0x21, TStringTable = 0xC2,
         TBool = 0xD0, TInt = 0xD1, TFloat = 0xD2, TUInt = 0xD3, TInt64 = 0xD4, TUInt64 = 0xD5, TDouble = 0xD6, TNull = 0xFF;
 
     private readonly byte[] _d;
@@ -70,7 +70,7 @@ public sealed class BymlReader
                 var at = U32(valueOffset);
                 return _d.AsSpan(at + 4, U32(at)).ToArray();
             }
-            case TArray or TDict: return ReadContainer(U32(valueOffset), type);
+            case TArray or TDict or THash32 or THash64: return ReadContainer(U32(valueOffset), type);
             case TBool: return UInt(valueOffset) != 0;
             case TInt: return (int)UInt(valueOffset);
             case TFloat: return BitConverter.Int32BitsToSingle((int)UInt(valueOffset));
@@ -105,9 +105,26 @@ public sealed class BymlReader
             }
             return dict;
         }
+        if (type is THash32 or THash64)
+        {
+            // Entries {u32|u64 hash, u32 value}, then one type byte per entry.
+            var entrySize = type == THash32 ? 8 : 12;
+            var types = o + 4 + entrySize * n;
+            var map = new BymlHashMap(n);
+            for (var i = 0; i < n; i++)
+            {
+                var e = o + 4 + entrySize * i;
+                var hash = type == THash32 ? UInt(e) : U64(e);
+                map[hash] = ReadValue(_d[types + i], e + entrySize - 4);
+            }
+            return map;
+        }
         throw new NotSupportedException($"BYML container type 0x{type:X2} at 0x{o:X} is not supported yet.");
     }
 }
+
+/// <summary>A BYML hash-map node (types 0x20 / 0x21): values keyed by a 32- or 64-bit hash instead of a string.</summary>
+public sealed class BymlHashMap(int capacity) : Dictionary<ulong, object?>(capacity);
 
 /// <summary>A BYML dictionary node. BYML stores keys sorted, so original authoring order is not available.</summary>
 public sealed class BymlDict(int capacity) : Dictionary<string, object?>(capacity, StringComparer.Ordinal)

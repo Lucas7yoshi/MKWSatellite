@@ -31,5 +31,14 @@ Containers start with `u8 type, u24 count`.
 - Dictionary: `count` entries of `u24 keyIndex, u8 type, u32 value`. Keys are stored sorted.
 - String table: `count + 1` u32 offsets relative to the table start (last one = end), then NUL-terminated UTF-8 strings.
 
+## Hash maps (supported)
+| Type | Meaning |
+|---|---|
+| 0x20 | hash map, 32-bit keys: `count` entries of `{u32 hash, u32 value}`, then `count` type bytes |
+| 0x21 | hash map, 64-bit keys: `count` entries of `{u64 hash, u32 value}`, then `count` type bytes |
+
+Read as `BymlHashMap` (`Dictionary<ulong, object?>`). Used by `Banc/PathAdditionalData/*.byml` (uncompressed),
+keyed by what look like rail-point hashes. Banc scenes themselves don't use them (all 717 parse without).
+
 ## Not yet supported
-Hash-map node types (`0x20`/`0x21`) and other newer types; the reader throws `NotSupportedException` naming the type and offset. `mkwsat scan` will show whether any game file needs them.
+Other newer node types; the reader throws `NotSupportedException` naming the type and offset.
