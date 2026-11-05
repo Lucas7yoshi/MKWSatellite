@@ -41,6 +41,15 @@ rail's `IsClosed`.
   `Rotate` at +0x60 (1.8 `RailGraph_ParseRail` 0x710029AD70). The code that tests a racer against the gate has not
   been found; the gameplay lap object (0x5A0 bytes) keeps a gate centre at +0x18 and half-extents at +0x2C/+0x30
   (default 40/40 from its vtable +0x50), read by its bounding-box helper 0x71007E84A0.
+- **The drawn gate is not the game's progress test (partly traced, 1.8).** `RailPoint_IsInSegmentVolume`
+  (0x71007F34D0) tests a position against the *tube between two consecutive rail points*: centre and frame are
+  interpolated (lerp / slerp) along the segment; laterally |dot(right, d)| <= lerp(half-width at point +0x2C) +
+  margin, with a per-point side mode (+0x530) that switches to the straight line between the two points' edges;
+  vertically dot(up, d) >= -(lerp(height +0x30) + margin), with the upper bound optional. For lap points the Dynamic
+  parser fills +0x2C/+0x30 from `Width`-like / `Height` keys (`Height` = MurmurHash3 0xC3DF69CD; neither key occurs in
+  any 1.8 lap path) and falls back to 40 when <= 1. What sets them before that (possibly RectSize) is not found, so
+  the real width of the progress zone is unconfirmed and the gate rectangle should be read as an approximation.
+  Callers: 0x71005B7600, 0x71005BD550, 0x7100AAD950 (not yet read).
 - **Placement (inferred, checked against the course model):** the gate spans **(offset - size) / 2 .. (offset +
   size) / 2** on each axis, i.e. centred at offset / 2. `mkwsat ground <course>` measures nodes against the stage
   model: on Airship Fortress race every lap node is 0-0.3 units above the road. Centring on the offset (the viewer's
