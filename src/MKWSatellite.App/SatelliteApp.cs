@@ -531,6 +531,7 @@ public sealed class SatelliteApp : IDisposable
             if (L.BulletZones)
             {
                 Legend(Palette.WithAlpha(Palette.BulletNoFinish, 0xFF), "can't end here (IsForbidKillerFinish)");
+                Legend(Palette.WithAlpha(Palette.BulletLookAhead, 0xFF), "can't end here (turn / ItemType ahead)");
                 Legend(Palette.BulletReleasable, "IsKillerReleasable point");
             }
         }

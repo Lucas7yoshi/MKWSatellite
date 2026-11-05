@@ -61,6 +61,8 @@ public static class Palette
     public static readonly uint RouteBulletBill = Rgb(255, 150, 90);
     /// <summary>Route stretch after an <c>IsForbidKillerFinish</c> point: a Bullet Bill can't end here.</summary>
     public static readonly uint BulletNoFinish = Rgb(255, 40, 60, 0x90);
+    /// <summary>Route stretch where the look-ahead (sharp turn or ItemType ahead) stops a Bullet Bill ending.</summary>
+    public static readonly uint BulletLookAhead = Rgb(255, 150, 30, 0x80);
     /// <summary>Route point with <c>IsKillerReleasable</c>.</summary>
     public static readonly uint BulletReleasable = Rgb(90, 255, 120);
     public static readonly uint Hover = Rgb(255, 255, 255, 0xC0);

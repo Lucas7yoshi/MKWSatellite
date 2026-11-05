@@ -83,11 +83,23 @@ and keeps them until the next point. When a Bullet Bill would end:
 - if the last point passed has `IsForbidKillerFinish`, it keeps going, so **a flagged point protects the stretch up to
   the next point**;
 - if it has `IsKillerReleasable`, it only ends in one particular follower state;
-- otherwise it also refuses while turning hard (a turn value above 0.45) and runs a look-ahead over the upcoming
-  route (constants 30, 50, 2), which is not decoded yet.
+- otherwise it also refuses while a turn value on the follower is above 0.45 (not traced further; likely the
+  current segment's turn);
+- then it walks the upcoming route points (a queue filled as points are reached, 1.8: `0x7100BEFA80`). The distance
+  to the first is measured along its segment direction (skipped if already passed), then segment lengths are added.
+  It keeps going if a point **within 30 units** has turn > **0.45** or `ItemType` 1 or 2, or a point **30-50 units**
+  ahead has turn > **2.0**. Past 50 units it ends.
 
-So tight spirals can be protected without any data flag, by the turn and look-ahead checks. Example: Airship Fortress
-race's descending spiral has only two flagged points (route rail 1 nodes 71-72 at the top) and six near the bottom.
+A point's **turn** = heading change to the next point / distance to it, in degrees per unit: the angle between the two
+points' forward axes (local +Z from `Rotate`) around the first point's up axis (local +Y), `atan2` times 57.2958.
+The code reads two axis vectors stored on the runtime point (+0x44, +0x50); that they are local +Y/+Z of `Rotate` is
+assumed (it matches the segment headings on Airship Fortress), not traced.
+Implemented in `BulletBillRules` (follows one rail, not links into other rails).
+
+So every bend tighter than 0.45°/unit, and its 30-unit lead-in, is protected without any flag. On Airship Fortress
+corners run 2-3°/unit and the descending spiral about 2°/unit, so the whole spiral is covered; the ramp up to it is
+covered by `ItemType` 2 points (route rail 1 nodes 65-68). `IsForbidKillerFinish` adds explicit stretches on top,
+e.g. over the gap before the finish line.
 Interstage and Rally routes carry far more flags (e.g. `LongRally_BigTreeToAirshipFortress`: 677).
 
 ## Area shapes

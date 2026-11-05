@@ -55,6 +55,7 @@ public sealed class CourseView(PrimitiveBatch batch)
     private bool _dirty = true;
     private float _minY, _maxY;
     private readonly List<(Pickable Item, float RadiusPx)> _pickables = [];
+    private readonly Dictionary<CourseRail, List<(int Segment, float From, float To)>> _lookAhead = new(ReferenceEqualityComparer.Instance);
 
     // Camera used for the current build.
     private IViewCamera _cam = null!;
@@ -64,6 +65,7 @@ public sealed class CourseView(PrimitiveBatch batch)
     {
         Course = course;
         Selected = null;
+        _lookAhead.Clear();
         var lap = course.LapPoints.Select(p => p.Position).ToList();
         var pts = lap.Count > 0 ? lap : course.Objects.Select(o => o.Position).ToList();
         _minY = pts.Count > 0 ? pts.Min(p => p.Y) : 0;
@@ -171,6 +173,14 @@ public sealed class CourseView(PrimitiveBatch batch)
             var pts = r.Rail.Points;
             if (isRoute && Layers.BulletZones)
             {
+                // Computed by the game from the route's shape (BulletBillRules): drawn first, flags on top.
+                if (!_lookAhead.TryGetValue(r, out var spans)) _lookAhead[r] = spans = BulletBillRules.LookAheadSpans(pts, r.Rail.IsClosed);
+                foreach (var (k, from, to) in spans)
+                {
+                    var a = pts[k].Translation;
+                    var b = pts[k + 1 < pts.Count ? k + 1 : 0].Translation;
+                    Line(Vector3.Lerp(a, b, from), Vector3.Lerp(a, b, to), 10, Palette.BulletLookAhead);
+                }
                 // The game keeps the IsForbidKillerFinish of the last route point the Bullet Bill passed until it
                 // reaches the next one (RouteFollower_Update), so a flagged point covers the stretch after it.
                 for (var i = 0; i < pts.Count; i++)
