@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>MKWSatellite</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.Input" />
+    <PackageReference Include="Silk.NET.OpenGL" />
+    <PackageReference Include="Silk.NET.OpenGL.Extensions.ImGui" />
+    <PackageReference Include="Silk.NET.Windowing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MKWSatellite.Formats\MKWSatellite.Formats.csproj" />
+  </ItemGroup>
+
+</Project>

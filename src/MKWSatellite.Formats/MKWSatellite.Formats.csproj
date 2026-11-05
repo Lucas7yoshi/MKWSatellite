@@ -1,0 +1,8 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Game file formats (BYML, zstd, course scenes, later BFRES/BNTX/Phive). No UI or GPU dependencies. -->
+  <ItemGroup>
+    <PackageReference Include="ZstdSharp.Port" />
+  </ItemGroup>
+
+</Project>

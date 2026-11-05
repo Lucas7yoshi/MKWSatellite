@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MKWSatellite.App/MKWSatellite.App.csproj" />
+    <Project Path="src/MKWSatellite.Cli/MKWSatellite.Cli.csproj" />
+    <Project Path="src/MKWSatellite.Formats/MKWSatellite.Formats.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MKWSatellite.Formats.Tests/MKWSatellite.Formats.Tests.csproj" />
+  </Folder>
+</Solution>

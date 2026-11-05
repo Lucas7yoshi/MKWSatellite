@@ -1,0 +1,22 @@
+<Project>
+  <!-- Central package versions. Keep THIRD_PARTY_NOTICES.md in sync when adding a package. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Formats -->
+    <PackageVersion Include="ZstdSharp.Port" Version="0.8.8" />
+    <!-- App (rendering / UI) -->
+    <PackageVersion Include="Silk.NET.Windowing" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Input" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.OpenGL" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.OpenGL.Extensions.ImGui" Version="2.23.0" />
+    <!-- CLI -->
+    <PackageVersion Include="System.CommandLine" Version="2.0.14" />
+    <!-- Tests -->
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,6 @@
+{
+  "romfs": [
+    "<path to extracted base game romfs>",
+    "<optional: path to extracted update romfs (overrides base)>"
+  ]
+}
