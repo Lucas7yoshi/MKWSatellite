@@ -38,6 +38,7 @@ public sealed partial class SatelliteApp : IDisposable
     private bool _use3D, _panning;
     private ModelLibrary? _models;
     private TerrainRenderer? _terrain;
+    private IReadOnlyList<WorldPiece> _pieces = [];
     private IViewCamera ActiveCamera => _use3D ? _orbit : _camera;
     private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
     private int _idleFrames;
@@ -204,6 +205,10 @@ public sealed partial class SatelliteApp : IDisposable
         {
             var course = _loader!.Load(file);
             _view.SetCourse(course, _camera);
+            // Courses on the open world (not a _Fix layer) also show the merged world geometry around them.
+            _pieces = course.StaticLayerSource.StartsWith("World_Game03", StringComparison.Ordinal)
+                ? WorldPieces.ForBounds(_fs!, course.PathBounds.Min, course.PathBounds.Max)
+                : [];
             _history = new();
             _saveMessage = null;
             var ys = course.Objects.Select(o => o.Position.Y).Concat(course.LapPoints.Select(l => l.Position.Y)).ToList();
@@ -383,7 +388,15 @@ public sealed partial class SatelliteApp : IDisposable
         _frame++;
         if (_tiles is { } t)
         {
-            t.Capture(ReadFramebuffer());
+            // Each tile moves the camera, so terrain streams in again: capture once loading has settled.
+            var busy = (_models?.Pending ?? 0) + (_terrain is not null && _view.Layers.Terrain ? _terrain.Pending : 0) > 0;
+            _tileSettle = busy && _tileWait++ < 600 ? 0 : _tileSettle + 1;
+            if (_tileSettle >= 2)
+            {
+                t.Capture(ReadFramebuffer());
+                _tileSettle = 0;
+                _tileWait = 0;
+            }
             if (t.Done)
             {
                 PngWriter.Write(_options.Screenshot!, t.Width, t.Height, t.Image);
@@ -426,10 +439,14 @@ public sealed partial class SatelliteApp : IDisposable
             var selected = _view.Selected is PickedObject po && ReferenceEquals(po.Object, o);
             _models.Draw(m, world, selected ? new Vector4(1f, 0.8f, 0.2f, 0.45f) : default);
         }
+        if (_view.Layers.WorldPieces)
+            foreach (var p in _pieces)
+                if (_models.GetPath(p.ModelPath) is { } pm) _models.Draw(pm, Matrix4x4.CreateTranslation(p.Origin));
         _models.End();
     }
 
     private TiledShot? _tiles;
+    private int _tileSettle, _tileWait;
 
     private void TakeScreenshot()
     {
@@ -650,6 +667,7 @@ public sealed partial class SatelliteApp : IDisposable
         {
             Toggle("Terrain", ref L.Terrain);
             Toggle("Water", ref L.Water);
+            Toggle("World geometry (merged pieces)", ref L.WorldPieces);
         }
         Toggle("2D markers on modelled objects", ref L.MarkersOnModels);
         if (_models is { Errors.Count: > 0 } && ImGui.TreeNode($"Model errors ({_models.Errors.Count})"))

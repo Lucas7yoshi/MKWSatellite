@@ -115,7 +115,9 @@ public sealed class TerrainRenderer : IDisposable
         uniform vec4 uTile;
         uniform sampler2D uWater;
         uniform vec3 uWaterXform; // this tile's texel -> the water source tile's texel: offset x, offset z, scale
+        uniform sampler2D uGround; // this tile's height map
         out vec2 vTexel;
+        out float vDepth;
         void main()
         {
             vec2 t = aGrid.xy;
@@ -123,6 +125,7 @@ public sealed class TerrainRenderer : IDisposable
             vec2 s = uWaterXform.xy + t * uWaterXform.z;
             float h = texture(uWater, (s / 4.0 + 0.5) / 65.0).r * uTile.w;
             vTexel = t;
+            vDepth = h - texelFetch(uGround, ivec2(t), 0).r * uTile.w;
             gl_Position = uViewProj * vec4(uTile.x + t.x * uTile.z / 256.0, h, uTile.y + t.y * uTile.z / 256.0, 1.0);
         }
         """;
@@ -130,12 +133,16 @@ public sealed class TerrainRenderer : IDisposable
     private const string WaterFragmentSource = """
         #version 410 core
         in vec2 vTexel;
+        in float vDepth;
         uniform int uMask;
         out vec4 FragColor;
         void main()
         {
             int q = (vTexel.x >= 128.0 ? 1 : 0) + (vTexel.y >= 128.0 ? 2 : 0);
             if (((uMask >> q) & 1) != 0) discard;
+            // The water surface spans whole areas; it only counts where it is clearly above the ground (low coasts
+            // and fields sit a few tenths below the sea level without being under water).
+            if (vDepth < 0.5) discard;
             FragColor = vec4(0.12, 0.34, 0.58, 0.62);
         }
         """;
@@ -163,7 +170,7 @@ public sealed class TerrainRenderer : IDisposable
     private readonly GL _gl;
     private readonly GameFileSystem _fs;
     private readonly uint _program, _waterProgram, _vao, _vbo, _ebo;
-    private readonly int _wViewProj, _wTile, _wWater, _wMask, _wXform;
+    private readonly int _wViewProj, _wTile, _wWater, _wMask, _wXform, _wGround;
     private readonly int _indexCount;
     private readonly int _uViewProj, _uTile, _uHeight, _uStep, _uMode, _uMask, _uHasArray, _uColor, _uMate, _uAlbedo, _uMats, _uLightDir;
     private readonly ConcurrentQueue<CpuTile?> _ready = new();
@@ -209,6 +216,7 @@ public sealed class TerrainRenderer : IDisposable
         _wWater = gl.GetUniformLocation(_waterProgram, "uWater");
         _wMask = gl.GetUniformLocation(_waterProgram, "uMask");
         _wXform = gl.GetUniformLocation(_waterProgram, "uWaterXform");
+        _wGround = gl.GetUniformLocation(_waterProgram, "uGround");
         (_vao, _vbo, _ebo, _indexCount) = BuildGrid(gl);
         _sceneTask = Task.Run(() =>
         {
@@ -571,6 +579,7 @@ public sealed class TerrainRenderer : IDisposable
         _gl.UseProgram(_waterProgram);
         _gl.UniformMatrix4(_wViewProj, 1, false, (float*)&viewProj);
         _gl.Uniform1(_wWater, 0);
+        _gl.Uniform1(_wGround, 1);
         _gl.Enable(EnableCap.DepthTest);
         _gl.DepthFunc(DepthFunction.Lequal);
         _gl.DepthMask(false);
@@ -590,6 +599,9 @@ public sealed class TerrainRenderer : IDisposable
             _gl.Uniform3(_wXform, (a.Min.X - sa.Min.X) / sa.Size * TerrainMaps.Cells, (a.Min.Y - sa.Min.Y) / sa.Size * TerrainMaps.Cells, a.Size / sa.Size);
             _gl.Uniform4(_wTile, a.Min.X, a.Min.Y, a.Size, _scene.MaxHeight);
             _gl.Uniform1(_wMask, mask);
+            _gl.ActiveTexture(TextureUnit.Texture1);
+            _gl.BindTexture(TextureTarget.Texture2D, n.Tile!.Height);
+            _gl.ActiveTexture(TextureUnit.Texture0);
             _gl.BindTexture(TextureTarget.Texture2D, src.Tile!.Water);
             // The grid without the skirt ring (its indices come after the grid's).
             _gl.DrawElements(PrimitiveType.Triangles, (uint)(GridN * GridN * 6), DrawElementsType.UnsignedInt, (void*)0);

@@ -76,7 +76,28 @@ Checks against course data (`mkwsat terrain <course>`):
 - Water: Koopa Troopa Beach C's track is at Y 220; the sea surface around it is at 200.
 
 Some areas over the sea have no water map of their own while an ancestor's covers them; the viewer falls back to the
-nearest ancestor's water map there.
+nearest ancestor's water map there. The water surface is mostly one level (220 around Crown City and Koopa Troopa
+Beach) and spans whole areas, including low land just under it (Crown City's lawns sit at 219.8), so the viewer only
+shows water at least 0.5 units above the ground (a viewer choice, not traced).
+
+## World pieces (`Model/Piece_Gridify_*`)
+
+Not terrain, but the other half of the open-world ground: actors flagged `IsGridify: True` in the world scenes (city
+floors and streets, `EditObj_TrackParts*` roads, street furniture, rocks) have no model of their own; they are merged
+per world tile into `Model/Piece_Gridify_Game03_X##_Z##.<name>.bfres.zs`. World tiles are 1000 units on a 16×16
+grid, tile (X, Z) centred on `((X − 7.5) × 1000, (Z − 7.5) × 1000)` (same indices as `Banc/World_Game03/XXZZ`). Each
+tile has three grids, matching the actor tags `Actor_Gridify250/500/1000` in the game:
+
+| File | Cell | Origin |
+|---|---|---|
+| `Gridify_Game03_X##_Z##_ij` | 250 | cell centre: tile centre + ((j − 1.5) × 250, 0, (i − 1.5) × 250) |
+| `Piece_Gridify_Game03_X##_Z##_ij` | 500 | cell centre: tile centre + ((j − 0.5) × 500, 0, (i − 0.5) × 500) |
+| `Piece_Gridify_Game03_X##_Z##` | 1000 | tile centre; merged atlas materials (`Common#_Aggregate`) |
+
+Heights are absolute. The first index digit is the **Z** cell. Fitted from data: merged street lights and flag poles
+of X06_Z10 lie inside their pieces only with these origins, and Crown City's lap path runs on the merged streets only
+with i = Z. The 250 and 500 grids hold different instances (no duplicates), so the viewer draws both for the tiles
+around a course and the whole-tile piece (treated as the far version) for one ring of tiles beyond.
 
 ## How the viewer draws it
 

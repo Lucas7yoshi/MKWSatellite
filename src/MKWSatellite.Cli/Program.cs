@@ -138,6 +138,11 @@ courseCmd.SetAction(parse =>
     Console.WriteLine($"path bounds {c.PathBounds.Min} .. {c.PathBounds.Max}");
     foreach (var g in c.Objects.GroupBy(o => (o.Layer, o.Category)).OrderBy(g => g.Key.Layer).ThenBy(g => g.Key.Category))
         Console.WriteLine($"  {g.Key.Layer,-9} {g.Key.Category,-14} {g.Count(),5}  e.g. {string.Join(", ", g.Select(o => o.Type).Distinct().Take(3))}");
+    if (Environment.GetEnvironmentVariable("MKWSAT_ALL") is not null)
+        foreach (var g in c.Objects.GroupBy(o => (o.Layer, o.Category, o.Type)).OrderBy(g => g.Key.Layer).ThenBy(g => g.Key.Type))
+            Console.WriteLine($"  type {g.Key.Layer,-9} {g.Key.Category,-14} {g.Key.Type} x{g.Count()}");
+    foreach (var o in c.Objects.Where(o => o.Type.StartsWith("Stage_", StringComparison.Ordinal)))
+        Console.WriteLine($"  {o.Layer,-9} stage model {o.Type} at {o.Position}");
     foreach (var g in c.Rails.GroupBy(r => (r.Layer, r.Kind)).OrderBy(g => g.Key.Layer))
         Console.WriteLine($"  {g.Key.Layer,-9} rail {g.Key.Kind,-18} {g.Count(),4} rails, {g.Sum(r => r.Rail.Points.Count)} points");
 
@@ -216,8 +221,8 @@ modelCmd.SetAction(parse =>
         var verts = m.Shapes.SelectMany(s => s.Positions).ToList();
         Console.WriteLine($"{m.Name}: {m.Bones.Count} bones, {m.Shapes.Count} shapes, {m.Materials.Count} materials, {tris} triangles");
         if (verts.Count > 0) Console.WriteLine($"  bounds {verts.Aggregate(System.Numerics.Vector3.Min)} .. {verts.Aggregate(System.Numerics.Vector3.Max)}");
-        foreach (var s in m.Shapes.Take(12))
-            Console.WriteLine($"  shape {s.Name}: {s.Positions.Length} verts, {s.Indices.Length / 3} tris, skin {s.SkinCount}, uv0 {(s.Uv0 is null ? "no" : "yes")}, material {m.Materials[s.MaterialIndex].Name} albedo {m.Materials[s.MaterialIndex].Albedo ?? "-"}");
+        foreach (var s in m.Shapes.Take(Environment.GetEnvironmentVariable("MKWSAT_ALL") is null ? 12 : int.MaxValue))
+            Console.WriteLine($"  shape {s.Name}: {s.Positions.Length} verts, {s.Indices.Length / 3} tris, skin {s.SkinCount}, uv0 {(s.Uv0 is null ? "no" : "yes")}, material {m.Materials[s.MaterialIndex].Name} albedo {m.Materials[s.MaterialIndex].Albedo ?? "-"}" + (s.Positions.Length > 0 ? $" bounds {s.Positions.Aggregate(System.Numerics.Vector3.Min)}..{s.Positions.Aggregate(System.Numerics.Vector3.Max)}" : ""));
         var missing = m.Materials.Select(x => x.Albedo).OfType<string>().Distinct().Where(t => !fs.Exists($"Tex/{t}.bntx.zs")).ToList();
         Console.WriteLine($"  albedo textures: {m.Materials.Select(x => x.Albedo).OfType<string>().Distinct().Count()}, missing files: {missing.Count} {string.Join(", ", missing.Take(5))}");
     }

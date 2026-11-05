@@ -135,6 +135,36 @@ public sealed class ModelLibrary : IDisposable
         return null;
     }
 
+    /// <summary>A model by romfs path if it is ready, else null (and starts loading it on first request).</summary>
+    public GpuModel? GetPath(string path)
+    {
+        lock (_models)
+            if (_models.TryGetValue(path, out var m)) return m;
+        if (_requested.TryAdd("path:" + path, 0))
+        {
+            Interlocked.Increment(ref _pending);
+            Task.Run(() =>
+            {
+                _workers.Wait();
+                try
+                {
+                    lock (_models)
+                    {
+                        if (_models.ContainsKey(path) || _loadingPaths.Contains(path)) return;
+                        _loadingPaths.Add(path);
+                    }
+                    _ready.Enqueue((path, LoadModel(path)));
+                }
+                finally
+                {
+                    _workers.Release();
+                    Interlocked.Decrement(ref _pending);
+                }
+            });
+        }
+        return null;
+    }
+
     private void LoadForType(string actorType)
     {
         _workers.Wait();

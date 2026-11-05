@@ -34,6 +34,8 @@ public sealed class ViewLayers
     public bool Models = true, StageModels = true;
     /// <summary>Open-world terrain (streamed height-map tiles) under the course.</summary>
     public bool Terrain = true, Water = true;
+    /// <summary>Merged open-world geometry (city floors, track parts, street furniture: <c>Piece_Gridify_*</c>).</summary>
+    public bool WorldPieces = true;
     /// <summary>Draw the 2D markers for objects that are shown as models.</summary>
     public bool MarkersOnModels = true;
     /// <summary>Multiplier for line widths and marker sizes.</summary>
