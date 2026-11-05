@@ -60,3 +60,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | Lakitu/OOB traced (out-of-bounds.md): PlayerRescue event flow, 6 triggers, respawn-point selection, per-course OOB census. Kart's own water/fall check still open. |
 | 2026-11-05 | Lap-out traced (user test video): leaving every lap progress zone sets the tracker's invalid-position flag and sends rescue event 0xC7A2B1BD (LapProgress_Update / Rescue_LapOutUpdate). Delay before Lakitu still unverified. |
 | 2026-11-05 | Lap-out timer traced: state machine with a 400-frame grace path gated by a never-written global (likely debug), so retail rescues on the first frame outside every progress zone. |
+| 2026-11-05 | PNG writer simplified to plain unfiltered RGBA with fastest zlib; compress the output with an external optimiser (oxipng) instead. |
