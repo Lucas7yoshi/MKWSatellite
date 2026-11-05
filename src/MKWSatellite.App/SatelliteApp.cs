@@ -540,7 +540,9 @@ public sealed partial class SatelliteApp : IDisposable
     {
         PickedObject o => $"{o.Object.Type}\n{o.Object.Category} ({o.Object.Layer})",
         PickedLapPoint l => $"Lap path node {l.Point.Index}" + (l.Point.CheckPoint is { } cp ? $"\nCheckPoint {cp:0}" : ""),
-        PickedRailPoint r => $"{r.Rail.Kind} node {r.Index} ({r.Rail.Layer})" + BulletNote(r.Rail.Rail.Points[r.Index].Dynamic),
+        PickedRailPoint r => $"{r.Rail.Info.Label} ({r.Rail.Kind}) node {r.Index}/{r.Rail.Rail.Points.Count}, {r.Rail.Layer}" +
+            (r.Rail.Kind == RailKinds.Grind ? $"\n{RailKinds.GrindTypeLabel(r.Rail.GrindType)}" : "") +
+            BulletNote(r.Rail.Rail.Points[r.Index].Dynamic),
         _ => "",
     };
 
@@ -639,7 +641,21 @@ public sealed partial class SatelliteApp : IDisposable
                 Legend(Palette.BulletReleasable, "IsKillerReleasable point");
             }
         }
-        Toggle("Glide / gravity / guide rails", ref L.OtherRails, Palette.ForRail("GlidePath"));
+        Toggle("Grind rails", ref L.GrindRails, Palette.GrindPlaced);
+        if (L.GrindRails)
+        {
+            void GLegend(uint c, string t)
+            {
+                ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine();
+                ImGui.TextColored(Palette.ToVector(c), t);
+            }
+            GLegend(Palette.GrindPlaced, "placed by hand");
+            GLegend(Palette.GrindTrack, "track-piece edges");
+            GLegend(Palette.GrindWire, "wires / power lines");
+            GLegend(Palette.GrindOther, "other RailSlideType");
+        }
+        Toggle("Fence / guardrail grind rails", ref L.FenceGrindRails, Palette.GrindFence);
+        Toggle("Object paths, glide & other paths", ref L.OtherRails, Palette.ForRail("GuideGraphRail"));
         Toggle("Path node dots", ref L.Nodes);
         Toggle("Lap progress zones", ref L.ProgressZones, Palette.ProgressZone);
         ImGui.TextDisabled("Objects");
@@ -706,7 +722,33 @@ public sealed partial class SatelliteApp : IDisposable
                 }
                 ImGui.EndTable();
             }
-            ImGui.TextDisabled("Click something in the view to inspect it.");
+            ImGui.Separator();
+            ImGui.Text("Paths");
+            if (ImGui.BeginTable("paths", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+            {
+                foreach (var g in c.Rails.GroupBy(r => r.Kind).OrderByDescending(g => g.Count()))
+                {
+                    var info = RailKinds.Info(g.Key);
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn();
+                    var col = RailKinds.IsGrind(g.Key) ? Palette.ForGrind(g.First()) : Palette.ForRail(g.Key);
+                    ImGui.TextColored(Palette.ToVector(Palette.WithAlpha(col, 0xFF)), info.Label);
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip($"{g.Key}\n{info.Description}\nBasis: {info.Basis}");
+                    ImGui.TableNextColumn(); ImGui.Text(g.Count().ToString());
+                    ImGui.TableNextColumn(); ImGui.TextDisabled($"{g.Sum(r => r.Rail.Points.Count)} nodes");
+                    ImGui.TableNextColumn(); ImGui.TextDisabled($"{g.Sum(r => r.Length):0} u");
+                }
+                ImGui.EndTable();
+            }
+            var grind = c.Rails.Where(r => r.Kind == RailKinds.Grind).GroupBy(r => r.GrindType).OrderBy(g => g.Key).ToList();
+            if (grind.Count > 0 && ImGui.TreeNode("Grind rails by RailSlideType"))
+            {
+                foreach (var g in grind)
+                    ImGui.TextColored(Palette.ToVector(Palette.WithAlpha(Palette.ForGrind(g.First()), 0xFF)),
+                        $"{g.Key}: {RailKinds.GrindTypeLabel(g.Key)}  x{g.Count()}, {g.Sum(r => r.Length):0} u");
+                ImGui.TreePop();
+            }
+            ImGui.TextDisabled("Hover a path name for what it is. Click something in the view to inspect it.");
         }
         switch (_view.Selected)
         {
@@ -759,7 +801,31 @@ public sealed partial class SatelliteApp : IDisposable
                 break;
             case PickedRailPoint { Rail: var r, Index: var i }:
                 var pt = r.Rail.Points[i];
-                ImGui.Text($"{r.Kind} node {i} ({r.Layer})");
+                var rk = r.Info;
+                ImGui.TextColored(Palette.ToVector(Palette.WithAlpha(RailKinds.IsGrind(r.Kind) ? Palette.ForGrind(r) : Palette.ForRail(r.Kind), 0xFF)), rk.Label);
+                ImGui.SameLine(); ImGui.TextDisabled(r.Kind);
+                ImGui.TextWrapped(rk.Description);
+                ImGui.TextDisabled($"basis: {rk.Basis}");
+                ImGui.Separator();
+                ImGui.Text($"node {i} of {r.Rail.Points.Count}{(r.Rail.IsClosed ? ", closed loop" : "")}, length {r.Length:0.#} u");
+                ImGui.TextDisabled($"{r.Layer} layer");
+                if (r.Kind == RailKinds.Grind) ImGui.Text($"RailSlideType {r.GrindType}: {RailKinds.GrindTypeLabel(r.GrindType)}");
+                if (RailKinds.IsGrind(r.Kind))
+                {
+                    var angle = pt.Dynamic?.Get<bool>("IsAngleLimit") ?? r.Dynamic?.Get<bool>("IsAngleLimit") ?? false;
+                    if (angle) ImGui.TextWrapped("IsAngleLimit (this node, or the rail default): read with the rail when a kart looks for one; effect not traced.");
+                    if (pt.Dynamic?.Get<bool>("IsHighPriority") == true) ImGui.TextWrapped("IsHighPriority: read with the rail when a kart looks for one; effect not traced.");
+                    var sz = CourseMath.Vec2(pt.Raw.Array("RectSize"));
+                    ImGui.TextDisabled($"catch box grows by max(RectSize) = {MathF.Max(sz.X, sz.Y):0.##} u around each segment");
+                }
+                if (r.ParentPrefab is { } prefab) ImGui.TextWrapped($"from prefab: {prefab}" + (prefab.Contains("Houdini/Auto_") ? " (generated)" : ""));
+                if (r.ParentActor is { } ph)
+                    ImGui.TextColored(new Vector4(1, 1, 0.5f, 1), _view.Course!.ObjectsByHash.TryGetValue(ph, out var po)
+                        ? $"belongs to {po.Type} at {po.Position.X:0}, {po.Position.Z:0}" : $"belongs to actor {ph:X16} (outside the loaded area)");
+                if (_view.Course!.RailUsers.TryGetValue(r, out var users))
+                    foreach (var (uo, node, link) in users)
+                        ImGui.TextColored(new Vector4(0.6f, 1, 0.6f, 1), $"used by {uo.Type} ({link} -> node {node})");
+                Dict("Rail parameters", r.Dynamic);
                 if (!DrawEditFields())
                 {
                     Vec("Position", pt.Translation);

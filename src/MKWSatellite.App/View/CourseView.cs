@@ -18,6 +18,8 @@ public sealed class ViewLayers
     /// <summary>The volume between consecutive lap gates that counts as being on the lap path (traced, see LapPoint).</summary>
     public bool ProgressZones = true;
     public bool AiRoutes = true, OtherRails = true;
+    /// <summary>Grind rails (<c>RailSlidePath</c>) and the ones along fences/guardrails (<c>ColRailSlidePath</c>).</summary>
+    public bool GrindRails = true, FenceGrindRails = true;
     /// <summary>Bullet Bill route flags: no-finish stretches (<c>IsForbidKillerFinish</c>) and releasable points.</summary>
     public bool BulletZones = true;
     /// <summary>3D: how overlay behind course geometry is drawn.</summary>
@@ -194,11 +196,16 @@ public sealed class CourseView(PrimitiveBatch batch)
         // 2. Rails
         foreach (var r in c.Rails.Where(r => LayerOn(r.Layer)))
         {
-            var isLap = r.Kind == "LapPathGraph";
-            var isRoute = r.Kind == "RoutePathGraph";
-            if (isLap ? !Layers.LapPath : isRoute ? !Layers.AiRoutes : !Layers.OtherRails) continue;
-            if (!isLap && !isRoute && !Palette.ShowRail(r.Kind)) continue;
-            var px = isLap ? 4f : isRoute ? 2f : 2.5f;
+            var isLap = r.Kind == RailKinds.Lap;
+            var isRoute = r.Kind == RailKinds.Route;
+            var isGrind = RailKinds.IsGrind(r.Kind);
+            var on = isLap ? Layers.LapPath : isRoute ? Layers.AiRoutes
+                : r.Kind == RailKinds.Grind ? Layers.GrindRails : r.Kind == RailKinds.FenceGrind ? Layers.FenceGrindRails
+                : Layers.OtherRails && Palette.ShowRail(r.Kind);
+            if (!on) continue;
+            var px = isLap ? 4f : isRoute ? 2f : isGrind ? 3f : 2.5f;
+            var kindColor = isGrind ? Palette.ForGrind(r) : Palette.ForRail(r.Kind);
+            var selectedRail = Selected is PickedRailPoint sel && ReferenceEquals(sel.Rail.Rail.Raw, r.Rail.Raw);
             var routeColor = isRoute ? Palette.ForRoute(r.Rail.Points.Count > 0 ? r.Rail.Points[0].Dynamic : null) : 0;
             var pts = r.Rail.Points;
             if (isRoute && Layers.BulletZones)
@@ -226,7 +233,8 @@ public sealed class CourseView(PrimitiveBatch batch)
             void Seg(Vector3 a, Vector3 b)
             {
                 var col = isLap ? (Layers.HeightColors ? Palette.Height((a.Y + b.Y) / 2, _minY, _maxY) : Palette.ForRail(r.Kind))
-                    : isRoute ? routeColor : Palette.ForRail(r.Kind);
+                    : isRoute ? routeColor : kindColor;
+                if (selectedRail) Line(a, b, px + 4, Palette.Hover);
                 Line(a, b, px, col);
                 if (isRoute && Vector3.Distance(a, b) > 30 * Upp((a + b) / 2)) Chevron(a, b, col); // direction of travel
             }
@@ -243,7 +251,7 @@ public sealed class CourseView(PrimitiveBatch batch)
                     if (isRoute && Layers.BulletZones && pts[i].Dynamic?.Get<bool>("IsKillerReleasable") == true)
                         Dot(pts[i].Translation, 4.5f, Palette.BulletReleasable);
                     else if (Layers.Nodes)
-                        Dot(pts[i].Translation, 2.5f, isRoute ? routeColor : Palette.ForRail(r.Kind));
+                        Dot(pts[i].Translation, 2.5f, isRoute ? routeColor : kindColor);
                 }
         }
 

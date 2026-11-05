@@ -74,6 +74,32 @@ public sealed record CourseObject(BancActor Actor, CourseLayer Layer, ObjectCate
 public sealed record CourseRail(BancRail Rail, CourseLayer Layer)
 {
     public string Kind => Rail.Name;
+    public RailKindInfo Info => RailKinds.Info(Kind);
+
+    /// <summary>Rail-level parameters (e.g. <c>RailSlideType</c>, <c>IsAngleLimit</c> on grind rails).</summary>
+    public BymlDict? Dynamic => Rail.Raw.Dict("Dynamic");
+
+    /// <summary>Editor prefab the rail came from, e.g. <c>Houdini/Auto_Game03_Wire_RailslidePath</c> (generated).</summary>
+    public string? ParentPrefab => Rail.Raw.Get<string>("ParentPrefab")?.Replace(".bcett.json", "");
+
+    /// <summary>Hash of the actor the rail belongs to (fence/guardrail for <c>ColRailSlidePath</c>), if any.</summary>
+    public ulong? ParentActor => Rail.Raw.TryGetValue("Parent", out var v) && v is ulong h ? h : null;
+
+    /// <summary><c>RailSlideType</c> of a grind rail (0 when absent).</summary>
+    public int GrindType => Dynamic?.TryGetValue("RailSlideType", out var v) == true && v is int i ? i : 0;
+
+    /// <summary>Polyline length through the nodes (closing segment included for closed rails).</summary>
+    public float Length
+    {
+        get
+        {
+            var p = Rail.Points;
+            var l = 0f;
+            for (var i = 1; i < p.Count; i++) l += Vector3.Distance(p[i - 1].Translation, p[i].Translation);
+            if (Rail.IsClosed && p.Count > 2) l += Vector3.Distance(p[^1].Translation, p[0].Translation);
+            return l;
+        }
+    }
 }
 
 /// <summary>
@@ -138,6 +164,34 @@ public sealed class CourseScene
     public IReadOnlyDictionary<ulong, BancRailPoint> PointsByHash => _pointsByHash ??=
         Rails.SelectMany(r => r.Rail.Points).GroupBy(p => p.Hash).ToDictionary(g => g.Key, g => g.First());
     private Dictionary<ulong, BancRailPoint>? _pointsByHash;
+
+    /// <summary>Objects by actor hash (for rail <c>Parent</c> and link lookups).</summary>
+    public IReadOnlyDictionary<ulong, CourseObject> ObjectsByHash => _objectsByHash ??=
+        Objects.GroupBy(o => o.Actor.Hash).ToDictionary(g => g.Key, g => g.First());
+    private Dictionary<ulong, CourseObject>? _objectsByHash;
+
+    /// <summary>
+    /// Objects that link to a node of each rail (e.g. a snowboarding Shy Guy to the <c>GuideGraphRail</c> it rides),
+    /// with the node index and link name.
+    /// </summary>
+    public IReadOnlyDictionary<CourseRail, List<(CourseObject Object, int Node, string Link)>> RailUsers => _railUsers ??= BuildRailUsers();
+    private Dictionary<CourseRail, List<(CourseObject, int, string)>>? _railUsers;
+
+    private Dictionary<CourseRail, List<(CourseObject, int, string)>> BuildRailUsers()
+    {
+        var node = new Dictionary<ulong, (CourseRail, int)>();
+        foreach (var r in Rails)
+            for (var i = 0; i < r.Rail.Points.Count; i++) node.TryAdd(r.Rail.Points[i].Hash, (r, i));
+        var users = new Dictionary<CourseRail, List<(CourseObject, int, string)>>(ReferenceEqualityComparer.Instance);
+        foreach (var o in Objects)
+            foreach (var (dst, name) in o.OutgoingLinks)
+                if (node.TryGetValue(dst, out var t))
+                {
+                    if (!users.TryGetValue(t.Item1, out var l)) users[t.Item1] = l = [];
+                    l.Add((o, t.Item2, name));
+                }
+        return users;
+    }
 }
 
 public static class CourseMath
@@ -150,6 +204,6 @@ public static class CourseMath
     public static Matrix4x4 EulerXyz(Vector3 r) =>
         Matrix4x4.CreateRotationX(r.X) * Matrix4x4.CreateRotationY(r.Y) * Matrix4x4.CreateRotationZ(r.Z);
 
-    internal static Vector2 Vec2(BymlArray? a) =>
+    public static Vector2 Vec2(BymlArray? a) =>
         a is { Count: >= 2 } ? new Vector2(Convert.ToSingle(a[0]), Convert.ToSingle(a[1])) : default;
 }

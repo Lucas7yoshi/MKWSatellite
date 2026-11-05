@@ -25,7 +25,9 @@ zstd-compressed BYML. Parsed by `Course/BancScene.cs`. Findings from 1.0 and 1.8
 | `ParentPrefab`, `PrimitiveType`, `IsGridify` | Prefab source, editor primitive (e.g. `Cone`), grid flag |
 
 ## Rail
-`Name` is the rail kind; `IsClosed`; `Points` is a list of nodes. Kinds seen: `LapPathGraph`, `RoutePathGraph` (AI routes), `GuideGraphRail`, `GravityPath`, `GravityCameraPath`, `GlidePath`, `WaterFlowPath`.
+`Name` is the rail kind; `IsClosed`; `Points` is a list of nodes. All kinds and what they do (grind rails, object
+paths, glide paths...) are in [rails.md](rails.md). A rail may also carry `Dynamic`, `ParentPrefab` and `Parent`
+(the owning actor's hash, e.g. the fence under a `ColRailSlidePath`).
 
 Rail point: `Hash`, `Parent` (rail hash), `Translation`, `Rotate`, `RectOffset` [2], `RectSize` [2], `Dynamic`, optional `Links` (`{Src, Dst, Name: "BasicSignal"}`: graph edges to other points by `Hash`, often to the first point of another rail). Guide rail points also have `Control0`/`Control1` (bezier handles).
 
@@ -71,7 +73,7 @@ rail's `IsClosed`.
 `Dynamic` has `AssistLerpType`, `ItemType`, `RecoverType` (meanings unknown).
 
 ### Guide rail
-`Dynamic.VelocityScale`, `Param1`.
+`Dynamic.VelocityScale`, `Param1`, `Param2`: paths followed by moving objects that link to them (rails.md).
 
 ## Facing of placed objects
 - `StartPosition`: local +Z = driving direction (within 1° of the lap path).

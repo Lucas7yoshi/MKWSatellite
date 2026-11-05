@@ -76,8 +76,23 @@ public static class Palette
         return prio < 0 ? RouteLowPriority : prio > 0 ? RoutePreferred : RouteNormal;
     }
 
-    /// <summary>Rails worth drawing under "Other rails"; editor/audience helper rails are skipped.</summary>
-    public static bool ShowRail(string kind) => kind is "GuideGraphRail" or "GravityPath" or "GlidePath" or "WaterFlowPath" or "PullPath";
+    /// <summary>Rails drawn under "Other paths": everything but the lap path, AI routes and grind rails.</summary>
+    public static bool ShowRail(string kind) => kind is not (RailKinds.Lap or RailKinds.Route) && !RailKinds.IsGrind(kind);
+
+    // Grind rails by RailSlideType / kind.
+    public static readonly uint GrindPlaced = Rgb(255, 120, 200);
+    public static readonly uint GrindTrack = Rgb(255, 60, 140);
+    public static readonly uint GrindWire = Rgb(255, 235, 90);
+    public static readonly uint GrindOther = Rgb(190, 120, 255);
+    public static readonly uint GrindFence = Rgb(230, 160, 110, 0xD0);
+
+    public static uint ForGrind(CourseRail r) => r.Kind == RailKinds.FenceGrind ? GrindFence : r.GrindType switch
+    {
+        0 => GrindPlaced,
+        1 => GrindTrack,
+        3 or 4 => GrindWire,
+        _ => GrindOther,
+    };
 
     /// <summary>Height ramp: low = blue, mid = green/yellow, high = red.</summary>
     public static uint Height(float y, float min, float max)
