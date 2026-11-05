@@ -23,7 +23,8 @@ namespace MKWSatellite.App
     /// <summary>
     /// Command line: <c>MKWSatellite [romfs...] [--course &lt;name part&gt;] [--screenshot &lt;out.png&gt;] [--size WxH]
     /// [--3d] [--orbit yawDeg,pitchDeg[,distance]] [--no-models] [--ui-scale N] [--no-ui] [--layer Field=0|1]...</c>.
-    /// <c>--layer</c> sets any public bool field of <c>ViewLayers</c> (e.g. <c>AiRoutes=0</c>); <c>--no-ui</c> hides the panels.
+    /// <c>--layer</c> sets any public bool or float field of <c>ViewLayers</c> (e.g. <c>AiRoutes=0</c>, <c>LineScale=2</c>);
+    /// <c>--no-ui</c> hides the panels. A top-down screenshot larger than the window is rendered in tiles and stitched.
     /// Positional arguments are romfs layers (base first) and override the configured ones.
     /// </summary>
     public sealed record AppOptions(IReadOnlyList<string> Romfs, string? Course, string? Screenshot, int Width, int Height)
@@ -38,8 +39,8 @@ namespace MKWSatellite.App
         public System.Numerics.Vector3? Orbit { get; init; }
         /// <summary>Hide the side panels (map-only screenshots).</summary>
         public bool NoUi { get; init; }
-        /// <summary>Layer overrides from --layer Field=0|1.</summary>
-        public IReadOnlyList<(string Field, bool Value)> Layers { get; init; } = [];
+        /// <summary>Layer overrides from --layer Field=value (bool fields: 0/1, float fields: a number).</summary>
+        public IReadOnlyList<(string Field, string Value)> Layers { get; init; } = [];
 
         public bool IsScreenshot => Screenshot is not null;
 
@@ -53,7 +54,7 @@ namespace MKWSatellite.App
             var sizeGiven = false;
             System.Numerics.Vector3? orbit = null;
             var noUi = false;
-            var layers = new List<(string, bool)>();
+            var layers = new List<(string, string)>();
             for (var i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -72,7 +73,7 @@ namespace MKWSatellite.App
                     case "--no-ui": noUi = true; break;
                     case "--layer" when i + 1 < args.Length:
                         var kv = args[++i].Split('=');
-                        layers.Add((kv[0], kv.Length < 2 || kv[1] is "1" or "true" or "on"));
+                        layers.Add((kv[0], kv.Length < 2 ? "1" : kv[1]));
                         break;
                     case "--orbit" when i + 1 < args.Length:
                         var o = args[++i].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();

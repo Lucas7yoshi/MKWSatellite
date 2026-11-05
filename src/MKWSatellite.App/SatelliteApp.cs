@@ -100,8 +100,10 @@ public sealed partial class SatelliteApp : IDisposable
         if (_options.NoModels) _view.Layers.Models = false;
         foreach (var (field, value) in _options.Layers)
         {
-            if (typeof(ViewLayers).GetField(field) is { FieldType: var t } f && t == typeof(bool)) f.SetValue(_view.Layers, value);
-            else Console.Error.WriteLine($"--layer: no bool layer named {field}");
+            var f = typeof(ViewLayers).GetField(field);
+            if (f?.FieldType == typeof(bool)) f.SetValue(_view.Layers, value is "1" or "true" or "on");
+            else if (f?.FieldType == typeof(float)) f.SetValue(_view.Layers, float.Parse(value, System.Globalization.CultureInfo.InvariantCulture));
+            else Console.Error.WriteLine($"--layer: no bool/float layer named {field}");
         }
         UpdateViewportRect();
         if (_options.Course is { } c)
@@ -335,6 +337,7 @@ public sealed partial class SatelliteApp : IDisposable
         _imgui.Update((float)delta);
         HandleEditKeys();
         UpdateViewportRect();
+        if (_tiles is { } tiling) tiling.Apply(_camera);
         if (!_options.IsScreenshot) HandleMouse((float)delta);
         _models?.PumpUploads(_options.IsScreenshot ? 200 : 12);
 
@@ -356,7 +359,7 @@ public sealed partial class SatelliteApp : IDisposable
         _view.DrawLabels(cam, dl);
         _view.DrawHighlights(cam, dl);
         if (!_use3D) DrawRuler(dl);
-        DrawScaleBar(dl);
+        if (_tiles is null) DrawScaleBar(dl);
         dl.PopClipRect();
         DrawHoverTooltip();
 
@@ -369,11 +372,27 @@ public sealed partial class SatelliteApp : IDisposable
 
         _imgui.Render();
         _frame++;
-        if (_options.IsScreenshot && _frame >= 4)
+        if (_tiles is { } t)
+        {
+            t.Capture(ReadFramebuffer());
+            if (t.Done)
+            {
+                PngWriter.Write(_options.Screenshot!, t.Width, t.Height, t.Image);
+                Console.WriteLine($"screenshot written: {_options.Screenshot} ({t.Width}x{t.Height}, {t.Count} tiles)");
+                _window.Close();
+            }
+        }
+        else if (_options.IsScreenshot && _frame >= 4)
         {
             // Wait for models to finish loading (bounded), then a few settled frames.
             _idleFrames = (_models?.Pending ?? 0) == 0 ? _idleFrames + 1 : 0;
-            if (_idleFrames >= 3 || _clock.Elapsed.TotalSeconds > 300) TakeScreenshot();
+            if (_idleFrames >= 3 || _clock.Elapsed.TotalSeconds > 300)
+            {
+                var win = _window.FramebufferSize;
+                if (!_use3D && _options.NoUi && _view.Course is not null && (_options.Width > win.X || _options.Height > win.Y))
+                    _tiles = TiledShot.Start(_view, _camera, _options.Width, _options.Height);
+                else TakeScreenshot();
+            }
         }
     }
 
@@ -391,7 +410,18 @@ public sealed partial class SatelliteApp : IDisposable
         _models.End();
     }
 
+    private TiledShot? _tiles;
+
     private void TakeScreenshot()
+    {
+        var (w, h, rgba) = ReadFramebuffer();
+        PngWriter.Write(_options.Screenshot!, w, h, rgba);
+        Console.WriteLine($"screenshot written: {_options.Screenshot} ({w}x{h})");
+        _window.Close();
+    }
+
+    /// <summary>The back buffer as top-down RGBA rows.</summary>
+    private (int Width, int Height, byte[] Rgba) ReadFramebuffer()
     {
         var fb = _window.FramebufferSize;
         var pixels = new byte[fb.X * fb.Y * 4];
@@ -407,9 +437,7 @@ public sealed partial class SatelliteApp : IDisposable
         var flipped = new byte[pixels.Length];
         for (var y = 0; y < fb.Y; y++) System.Buffer.BlockCopy(pixels, y * stride, flipped, (fb.Y - 1 - y) * stride, stride);
         for (var i = 3; i < flipped.Length; i += 4) flipped[i] = 0xFF;
-        PngWriter.Write(_options.Screenshot!, fb.X, fb.Y, flipped);
-        Console.WriteLine($"screenshot written: {_options.Screenshot} ({fb.X}x{fb.Y})");
-        _window.Close();
+        return (fb.X, fb.Y, flipped);
     }
 
     private void DrawRuler(ImDrawListPtr dl)

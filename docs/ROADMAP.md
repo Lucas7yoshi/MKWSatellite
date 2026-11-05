@@ -44,3 +44,4 @@ Deferred: Phive collision (surface types). Editing and saving: started 2026-11-0
 | 2026-11-05 | 3D overlay depth option "Behind geometry": draw on top / dim (default) / hide, depth-tested against the models with a small pull towards the camera so road-level lines stay visible. |
 | 2026-11-05 | Lap progress traced (user test showed drawn gates were wrong): gates span RectOffset ± RectSize (half-extents, full offset), progress = segment between two gate planes within interpolated width/height; new "Lap progress zones" layer. |
 | 2026-11-05 | Screenshot options `--no-ui` (map only) and `--layer Field=0|1` (any ViewLayers toggle). User confirmed in game that the traced gates/progress zones match. |
+| 2026-11-05 | Tiled top-down screenshots: `--no-ui --size WxH` larger than the window renders window-sized tiles at one scale and stitches them (e.g. 6000x6000). `--layer` also sets float fields (`LineScale=2`). |
