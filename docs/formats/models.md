@@ -14,7 +14,8 @@ public format knowledge. Code: `Formats/Models`, `Formats/Textures`, `Formats/Ar
 
 Course geometry is ordinary actors named `Stage_<Course>_<Variant>_00`, placed in `World_Game03/WorldResident`
 (e.g. `Stage_Cinema_A_00` at (2255, 542, -4952)), so the course loader's world layer already picks them up.
-Open-world ground is **not** in these models: it is the terrain system (`TerrainArc`, `Phive/Terrain`), not done yet.
+Open-world ground is **not** in these models: it is the terrain system (`TerrainArc`), see terrain.md. BNTX texture
+arrays: each layer is a full mip chain, layers are `image size / array length` bytes apart (used for the terrain atlas).
 
 ## BFRES (file version 10.x, `FRES    `)
 Matches the Switch v9 layout for everything a viewer needs:

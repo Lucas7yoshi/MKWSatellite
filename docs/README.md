@@ -13,6 +13,7 @@ Working notes kept alongside the code: what's done, why things are the way they 
 | [formats/rsdb.md](formats/rsdb.md) | RSDB resource databases (actor labels, course table, world scene tree) |
 | [formats/nsp.md](formats/nsp.md) | NSP/NCA notes from extracting a game dump |
 | [formats/models.md](formats/models.md) | Actor → model links, BFRES 10, BNTX 4.1, Switch 2 texture swizzle, the model viewer |
+| [formats/terrain.md](formats/terrain.md) | Open-world terrain: TSCB quadtree, TARB height/material/colour/water maps, how the viewer streams it |
 
 Conventions:
 - Mark anything not confirmed against game code or data as **unverified**.

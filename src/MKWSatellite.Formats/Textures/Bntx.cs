@@ -59,6 +59,8 @@ public sealed class BntxTexture
     /// <summary>Raw (swizzled) image data; <see cref="MipOffsets"/> are relative to its start.</summary>
     public required ReadOnlyMemory<byte> Data { get; init; }
     public required long[] MipOffsets { get; init; }
+    /// <summary>Bytes between array layers (each layer holds a full mip chain); 0 for single textures.</summary>
+    public long LayerStride { get; init; }
 
     public int MipWidth(int level) => Math.Max(1, Width >> level);
     public int MipHeight(int level) => Math.Max(1, Height >> level);
@@ -71,14 +73,14 @@ public sealed class BntxTexture
         return level;
     }
 
-    /// <summary>One mip level of array layer 0, deswizzled to linear blocks (still compressed if the format is).</summary>
-    public byte[] GetLinearMip(int level = 0)
+    /// <summary>One mip level of an array layer, deswizzled to linear blocks (still compressed if the format is).</summary>
+    public byte[] GetLinearMip(int level = 0, int layer = 0)
     {
         var b = Format.Block ?? throw new NotSupportedException($"Texture format {Format} not supported");
         level = Math.Clamp(level, 0, MipOffsets.Length - 1);
         var bw = (MipWidth(level) + b.W - 1) / b.W;
         var bh = (MipHeight(level) + b.H - 1) / b.H;
-        var data = Data.Span[(int)MipOffsets[level]..];
+        var data = Data.Span[(int)(MipOffsets[level] + Math.Clamp(layer, 0, Math.Max(0, ArrayLength - 1)) * LayerStride)..];
         if (TileMode != 0)
         {
             // Pitch linear: rows are tightly packed in what we've seen; copy as is.
@@ -88,10 +90,10 @@ public sealed class BntxTexture
     }
 
     /// <summary>A mip level decoded to RGBA8 (top row first). Returns null for formats we can't decode yet.</summary>
-    public byte[]? DecodeMip(int level = 0)
+    public byte[]? DecodeMip(int level = 0, int layer = 0)
     {
         level = Math.Clamp(level, 0, MipOffsets.Length - 1);
-        return TextureDecoder.ToRgba8(GetLinearMip(level), MipWidth(level), MipHeight(level), Format);
+        return TextureDecoder.ToRgba8(GetLinearMip(level, layer), MipWidth(level), MipHeight(level), Format);
     }
 }
 
@@ -139,6 +141,7 @@ public static class Bntx
                 MipCount = mips, TileMode = tileMode, BlockHeightLog2 = bhLog2,
                 Data = file.AsMemory((int)start, len),
                 MipOffsets = mipAbs.Select(m => m - start).ToArray(),
+                LayerStride = arrayLen > 1 && imageSize > 0 ? imageSize / arrayLen : 0,
             });
         }
         return result;

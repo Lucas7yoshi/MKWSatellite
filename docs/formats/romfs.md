@@ -16,7 +16,8 @@
 | `Tex/` | External textures for models | Planned |
 | `Phive/StaticCompoundBody/Course/` | Per-scene collision, `*.Nin_Ounce_NVN2.bphsc.zs` (e.g. `Race_Cinema_A_00`, `RaceStage_Cinema_A_00`) | Deferred |
 | `Phive/Shape/Dcc/` | Collision shapes `*.bphsh.zs` (e.g. `Stage_Cinema_A`) | Deferred |
-| `TerrainArc/Game03_Proc/`, `Phive/Terrain/` | Open-world terrain tiles (heightmaps etc.) | Not planned |
+| `TerrainArc/Game03_Proc.tscb`, `TerrainArc/Game03_Proc/` | Open-world terrain quadtree and per-area maps (see terrain.md) | Drawn (height, materials, colour, water) |
+| `Phive/Terrain/` | Terrain collision | Not planned |
 | `Sound/Resource/` | Audio (`*.bars.zs`, BARS/AMTA with music metadata) | Out of scope |
 
 ## exefs

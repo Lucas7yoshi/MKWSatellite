@@ -178,7 +178,8 @@ root.Subcommands.Add(courseCmd);
 var texPath = new Argument<string>("path") { Description = "romfs-relative BNTX, e.g. Tex/Stage_Cinema_A_RoofExterior_Alb.bntx.zs" };
 var texOut = new Argument<string>("out") { Description = "Output PNG path." };
 var texMip = new Option<int>("--mip") { Description = "Mip level to decode.", DefaultValueFactory = _ => 0 };
-var texCmd = new Command("tex", "Decode a BNTX texture to PNG.") { texPath, texOut, texMip };
+var texLayer = new Option<int>("--layer") { Description = "Array layer to decode.", DefaultValueFactory = _ => 0 };
+var texCmd = new Command("tex", "Decode a BNTX texture to PNG.") { texPath, texOut, texMip, texLayer };
 texCmd.SetAction(parse =>
 {
     var fs = OpenFs(parse.GetValue(romfsOption));
@@ -188,7 +189,7 @@ texCmd.SetAction(parse =>
         Console.WriteLine($"{t.Name}: {t.Width}x{t.Height} {t.Format} mips {t.MipCount} array {t.ArrayLength} tile {t.TileMode} bh 2^{t.BlockHeightLog2}");
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var level = parse.GetValue(texMip);
-        var rgba = t.DecodeMip(level);
+        var rgba = t.DecodeMip(level, parse.GetValue(texLayer));
         Console.WriteLine($"  decoded in {sw.ElapsedMilliseconds} ms");
         if (rgba is null) { Console.Error.WriteLine("  format not supported"); return 2; }
         MKWSatellite.Formats.Imaging.PngWriter.Write(parse.GetValue(texOut)!, t.MipWidth(level), t.MipHeight(level), rgba);
@@ -473,6 +474,59 @@ gtCmd.SetAction(parse =>
     return 0;
 });
 root.Subcommands.Add(gtCmd);
+
+// terrain: summarise the terrain scene; with a course, compare the lap path with the terrain height under it
+var terCourse = new Argument<string?>("course") { Description = "Optional race scene name filter.", Arity = ArgumentArity.ZeroOrOne };
+var terLevel = new Option<int>("--level") { Description = "Quadtree level to sample (0 = coarsest).", DefaultValueFactory = _ => 7 };
+var terCmd = new Command("terrain", "Summarise TerrainArc/Game03_Proc.tscb; with a course, lap path height vs terrain height.") { terCourse, terLevel };
+terCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var scene = MKWSatellite.Formats.Terrain.TerrainScene.Parse(fs.ReadRaw("TerrainArc/Game03_Proc.tscb"));
+    Console.WriteLine($"world scale {scene.WorldScale}, max height {scene.MaxHeight}, {scene.Materials.Count} materials, {scene.Areas.Count} areas, levels 0..{scene.MaxLevel}");
+    foreach (var (id, (name, ext)) in scene.ResourceTypes) Console.WriteLine($"  resource 0x{id:X4} {name} ({ext}) in {scene.Areas.Count(a => a.Has(id))} areas");
+    foreach (var g in scene.Areas.GroupBy(a => a.Level)) Console.WriteLine($"  level {g.Key}: {g.Count()} areas, size {g.First().Size}");
+    var filter = parse.GetValue(terCourse);
+    if (filter is null) return 0;
+    var loader = new CourseLoader(fs);
+    var file = loader.ListRaceScenes().FirstOrDefault(f => f.Contains(filter, StringComparison.OrdinalIgnoreCase));
+    if (file is null) { Console.Error.WriteLine("no such course"); return 1; }
+    var course = loader.Load(file);
+    var level = parse.GetValue(terLevel);
+    var cache = new Dictionary<string, ushort[]?>();
+    // variant 0: row = Z, column = X (documented); 1: swapped
+    float? Sample(System.Numerics.Vector3 p, int variant)
+    {
+        var a = scene.Areas.FirstOrDefault(a => a.Level == level && p.X >= a.Min.X && p.X < a.Max.X && p.Z >= a.Min.Y && p.Z < a.Max.Y);
+        if (a is null) return null;
+        if (!cache.TryGetValue(a.Name, out var h))
+            cache[a.Name] = h = MKWSatellite.Formats.Terrain.TerrainMaps.TryRead(fs, MKWSatellite.Formats.Terrain.TerrainMaps.PathOf("Game03_Proc", a.Name, "hght")) is { } f
+                ? MKWSatellite.Formats.Terrain.TerrainMaps.Heights(f) : null;
+        if (h is null) return null;
+        var u = (p.X - a.Min.X) / a.Size * 256;
+        var v = (p.Z - a.Min.Y) / a.Size * 256;
+        if (variant == 1) (u, v) = (v, u);
+        int x0 = (int)u, y0 = (int)v;
+        float fx = u - x0, fy = v - y0;
+        const int R = MKWSatellite.Formats.Terrain.TerrainMaps.Resolution;
+        float H(int x, int y) => h[y * R + x] / 65535f * scene.MaxHeight;
+        return (H(x0, y0) * (1 - fx) + H(x0 + 1, y0) * fx) * (1 - fy) + (H(x0, y0 + 1) * (1 - fx) + H(x0 + 1, y0 + 1) * fx) * fy;
+    }
+    for (var variant = 0; variant < 2; variant++)
+    {
+        var diffs = new List<float>();
+        foreach (var lp in course.LapPoints)
+            if (Sample(lp.Position, variant) is { } t) diffs.Add(lp.Position.Y - t);
+        diffs.Sort();
+        if (diffs.Count == 0) { Console.WriteLine("no terrain under the path"); continue; }
+        Console.WriteLine($"variant {variant}: {diffs.Count}/{course.LapPoints.Count} lap points over terrain; path - terrain: median {diffs[diffs.Count / 2]:0.00}, " +
+            $"within 3 units {diffs.Count(d => MathF.Abs(d) < 3) * 100 / diffs.Count}%, p10 {diffs[diffs.Count / 10]:0.0}, p90 {diffs[diffs.Count * 9 / 10]:0.0}");
+    }
+    Console.WriteLine($"{cache.Count} height maps read");
+    return 0;
+});
+root.Subcommands.Add(terCmd);
 
 return root.Parse(args).Invoke();
 
