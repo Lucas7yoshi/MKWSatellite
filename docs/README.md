@@ -1,0 +1,17 @@
+# MKWSatellite docs
+
+Working notes kept alongside the code: what's done, why things are the way they are, and what we know about the game's file formats.
+
+| File | Contents |
+|---|---|
+| [ROADMAP.md](ROADMAP.md) | Agreed plan and progress log |
+| [DECISIONS.md](DECISIONS.md) | Decision log (what was chosen, alternatives, why) |
+| [formats/romfs.md](formats/romfs.md) | Game dump layout, versions, updates, where things live |
+| [formats/byml.md](formats/byml.md) | BYML container format as implemented by our reader |
+| [formats/banc.md](formats/banc.md) | Banc course placement scenes (actors, rails, checkpoints) |
+| [formats/nsp.md](formats/nsp.md) | NSP/NCA notes from extracting a game dump |
+
+Conventions:
+- Mark anything not confirmed against game code or data as **unverified**.
+- Use romfs-relative paths (e.g. `Banc/...`), never paths from someone's machine.
+- Game version matters: say which version (`Product.100` = 1.0.0, `Product.180` = 1.8.0) a finding came from.

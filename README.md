@@ -42,6 +42,10 @@ dotnet run --project src/MKWSatellite.Cli -- banc "Race_Cinema_A_00[Game03].bcet
 dotnet run --project src/MKWSatellite.App
 ```
 
+## Docs
+
+Progress, decisions and format notes live in [docs/](docs/README.md).
+
 ## Licensing
 
 The project licence has not been chosen yet. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependencies
