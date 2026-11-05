@@ -56,3 +56,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | Camera framing (top-down and 3D) includes every lap gate, so progress zones aren't cropped. |
 | 2026-11-05 | `mkwsat dump <path> --yaml`: whole BYML as plain YAML. |
 | 2026-11-05 | Non-checkpoint lap gates drawn orange and thicker (were faint grey). |
+| 2026-11-05 | Picking: overlapping areas ordered smallest first (top-down) / nearest then smallest (3D); clicking again at the same spot cycles through everything under the cursor; tooltip lists them. |

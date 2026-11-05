@@ -559,55 +559,95 @@ public sealed class CourseView(PrimitiveBatch batch)
 
     // --- picking and labels ---
 
-    public Pickable? PickAt(IViewCamera view, Vector2 screen)
+    public Pickable? PickAt(IViewCamera view, Vector2 screen) => PickAllAt(view, screen).FirstOrDefault();
+
+    /// <summary>Everything under the cursor, best first (what <see cref="PickAt"/> returns, then the rest).</summary>
+    public IReadOnlyList<Pickable> HoveredAll { get; private set; } = [];
+
+    private Vector2 _lastClick = new(float.MinValue);
+
+    /// <summary>
+    /// A click: picks the best item under the cursor; clicking again at the same spot steps through the others
+    /// (overlapping areas, stacked points).
+    /// </summary>
+    public Pickable? PickClick(IViewCamera view, Vector2 screen)
     {
-        if (view is OrbitCamera orbit) return PickOnScreen(orbit, screen);
+        var all = PickAllAt(view, screen);
+        var again = Vector2.Distance(screen, _lastClick) < 4;
+        _lastClick = screen;
+        if (all.Count == 0) return null;
+        if (again && Selected is { } s && IndexOf(all, s) is var i and >= 0) return all[(i + 1) % all.Count];
+        return all[0];
+    }
+
+    private static int IndexOf(IReadOnlyList<Pickable> list, Pickable p)
+    {
+        for (var i = 0; i < list.Count; i++) if (Equals(list[i], p)) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Every item under the cursor, best first: points by distance, then areas. Top-down, overlapping areas are
+    /// ordered smallest footprint first (the most specific one); in 3D, nearest hit first, then smallest.
+    /// </summary>
+    public List<Pickable> PickAllAt(IViewCamera view, Vector2 screen)
+    {
+        if (view is OrbitCamera orbit) return PickAllOnScreen(orbit, screen);
         var camera = (TopDownCamera)view;
         var world = camera.ScreenToWorld(screen);
-        Pickable? best = null;
-        var bestD = float.MaxValue;
         var limit = PickRadiusPx * camera.UnitsPerPixel;
+        var points = new List<(Pickable Item, float D)>();
+        var areas = new List<(Pickable Item, float Size)>();
         foreach (var (item, radiusPx) in _pickables)
         {
-            float d;
             if (item is PickedObject { Object.IsArea: true } a)
-                d = PointInQuad(world, AreaFootprint(a.Object)) ? 0.5f * limit : float.MaxValue; // areas lose to point objects
-            else
-                d = Vector2.Distance(world, new Vector2(item.Position.X, item.Position.Z)) - radiusPx * camera.UnitsPerPixel;
-            if (d < limit && d < bestD) { best = item; bestD = d; }
+            {
+                var fp = AreaFootprint(a.Object);
+                if (PointInQuad(world, fp)) areas.Add((item, PolygonArea(fp)));
+                continue;
+            }
+            var d = Vector2.Distance(world, new Vector2(item.Position.X, item.Position.Z)) - radiusPx * camera.UnitsPerPixel;
+            if (d < limit) points.Add((item, d));
         }
-        return best;
+        return [.. points.OrderBy(p => p.D).Select(p => p.Item), .. areas.OrderBy(a => a.Size).Select(a => a.Item)];
+    }
+
+    private static float PolygonArea(Vector3[] q)
+    {
+        var s = 0f;
+        for (int i = 0, j = q.Length - 1; i < q.Length; j = i++) s += q[j].X * q[i].Z - q[i].X * q[j].Z;
+        return MathF.Abs(s) / 2;
     }
 
     /// <summary>How close (screen pixels) the cursor must be to a point to pick it; follows the line/marker size.</summary>
     private float PickRadiusPx => 14f * MathF.Max(1f, Layers.LineScale);
 
-    /// <summary>3D picking: the nearest projected point within the pick radius wins; otherwise the nearest area box under the cursor.</summary>
-    private Pickable? PickOnScreen(OrbitCamera camera, Vector2 screen)
+    /// <summary>3D picking: projected points within the pick radius (nearest first), then area boxes the cursor ray hits.</summary>
+    private List<Pickable> PickAllOnScreen(OrbitCamera camera, Vector2 screen)
     {
-        Pickable? best = null;
-        var bestD = PickRadiusPx;
+        var points = new List<(Pickable Item, float D)>();
+        var areas = new List<(Pickable Item, float T, float Size)>();
+        var (origin, dir) = camera.Ray(screen);
         foreach (var (item, _) in _pickables)
         {
-            if (item is PickedObject { Object.IsArea: true }) continue;
+            if (item is PickedObject { Object.IsArea: true } a)
+            {
+                // Boxes the camera is inside all hit at t = 0; smaller ones go first among equals.
+                if (RayHitArea(a.Object, origin, dir) is { } t) areas.Add((item, t, PolygonArea(AreaFootprint(a.Object))));
+                continue;
+            }
             if (camera.Project(item.Position) is not { } p) continue;
             var d = Vector2.Distance(p, screen);
-            if (d < bestD) { best = item; bestD = d; }
+            if (d < PickRadiusPx) points.Add((item, d));
         }
-        if (best is not null) return best;
-
-        var (origin, dir) = camera.Ray(screen);
-        var bestT = float.MaxValue;
-        foreach (var (item, _) in _pickables)
-        {
-            if (item is not PickedObject { Object.IsArea: true } a) continue;
-            if (RayHitArea(a.Object, origin, dir) is { } t && t < bestT) { bestT = t; best = item; }
-        }
-        return best;
+        return [.. points.OrderBy(p => p.D).Select(p => p.Item), .. areas.OrderBy(a => a.T).ThenBy(a => a.Size).Select(a => a.Item)];
     }
 
-    public void UpdateHover(IViewCamera camera, Vector2 mouse, bool mouseInViewport) =>
-        Hovered = mouseInViewport ? PickAt(camera, mouse) : null;
+    public void UpdateHover(IViewCamera camera, Vector2 mouse, bool mouseInViewport)
+    {
+        HoveredAll = mouseInViewport ? PickAllAt(camera, mouse) : [];
+        Hovered = HoveredAll.Count > 0 ? HoveredAll[0] : null;
+    }
 
     private static bool PointInQuad(Vector2 p, Vector3[] q)
     {

@@ -283,7 +283,7 @@ public sealed partial class SatelliteApp : IDisposable
         }
         else if (_dragStart is { } start)
         {
-            if (Vector2.Distance(start, pos) < 3 && free) { _view.Selected = _view.PickAt(_orbit, pos); _view.Invalidate(); }
+            if (Vector2.Distance(start, pos) < 3 && free) { _view.Selected = _view.PickClick(_orbit, pos); _view.Invalidate(); }
             _dragStart = null;
         }
         if ((mouse.IsButtonPressed(MouseButton.Right) || mouse.IsButtonPressed(MouseButton.Middle)) && (free || _panning))
@@ -332,7 +332,7 @@ public sealed partial class SatelliteApp : IDisposable
         }
         else if (_dragStart is { } start)
         {
-            if (Vector2.Distance(start, pos) < 3 && free) { _view.Selected = _view.PickAt(_camera, pos); _view.Invalidate(); }
+            if (Vector2.Distance(start, pos) < 3 && free) { _view.Selected = _view.PickClick(_camera, pos); _view.Invalidate(); }
             _dragStart = null;
         }
 
@@ -644,6 +644,20 @@ public sealed partial class SatelliteApp : IDisposable
         ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
         ImGui.BeginTooltip();
         ImGui.TextUnformatted(Describe(h));
+        var all = _view.HoveredAll;
+        if (all.Count > 1)
+        {
+            // Everything under the cursor; clicking again in the same spot steps through this list.
+            ImGui.Separator();
+            ImGui.TextDisabled($"{all.Count} items here (click again to cycle):");
+            foreach (var p in all.Take(12))
+            {
+                var label = Describe(p).Split('\n')[0];
+                if (Equals(p, _view.Selected)) ImGui.TextColored(new Vector4(1f, 0.85f, 0.2f, 1f), "> " + label + "  (selected)");
+                else ImGui.TextUnformatted("  " + label);
+            }
+            if (all.Count > 12) ImGui.TextDisabled($"  ... {all.Count - 12} more");
+        }
         ImGui.EndTooltip();
     }
 
