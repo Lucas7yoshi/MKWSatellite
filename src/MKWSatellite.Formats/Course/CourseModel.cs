@@ -79,7 +79,10 @@ public sealed record CourseRail(BancRail Rail, CourseLayer Layer)
 /// <summary>
 /// A lap-path node with its gate rectangle. The game reads <c>RectSize</c>/<c>RectOffset</c> for every rail point
 /// (RailGraph_ParseRail, 1.8 0x710029AD70) into a rectangle in the point's local X/Y plane, so the gate faces local Z.
-/// The rectangle is treated as centred on (offset.X, offset.Y); that centring is inferred from the data, not traced.
+/// The rectangle spans (offset - size) / 2 .. (offset + size) / 2 on each axis, i.e. its centre is at offset / 2.
+/// Inferred, not traced: it is the only reading under which every Airship Fortress gate contains the road at its node
+/// (nodes measured 0-0.3 units above the stage model) while fitting under the covered section's 11-19 unit ceiling,
+/// and it matches gates widened to one side (offset = growth). See docs/formats/banc.md.
 /// </summary>
 public sealed record LapPoint(BancRailPoint Point, CourseRail Rail, int Index)
 {
@@ -100,7 +103,7 @@ public sealed record LapPoint(BancRailPoint Point, CourseRail Rail, int Index)
         var m = CourseMath.EulerXyz(Point.Rotate);
         var x = Vector3.TransformNormal(Vector3.UnitX, m);
         var y = Vector3.TransformNormal(Vector3.UnitY, m);
-        var c = Position + x * RectOffset.X + y * RectOffset.Y;
+        var c = Position + x * (RectOffset.X / 2) + y * (RectOffset.Y / 2);
         var hx = x * (RectSize.X / 2);
         var hy = y * (RectSize.Y / 2);
         return [c - hx - hy, c + hx - hy, c + hx + hy, c - hx + hy];

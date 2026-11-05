@@ -224,6 +224,68 @@ modelCmd.SetAction(parse =>
 });
 root.Subcommands.Add(modelCmd);
 
+// ground: measure how far lap nodes and areas sit above the course geometry (Stage models, as the viewer places them)
+var groundCourse = new Argument<string>("course") { Description = "Race scene name filter, e.g. AirshipFortress_A." };
+var groundCmd = new Command("ground", "Vertical distance from lap nodes and areas to the course models below/above them.") { groundCourse };
+groundCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var loader = new CourseLoader(fs);
+    var file = loader.ListRaceScenes().FirstOrDefault(f => f.Contains(parse.GetValue(groundCourse)!, StringComparison.OrdinalIgnoreCase));
+    if (file is null) { Console.Error.WriteLine("no such course"); return 1; }
+    var course = loader.Load(file);
+    var resolver = new MKWSatellite.Formats.Models.ActorModelResolver(fs);
+    var tris = new List<(System.Numerics.Vector3 A, System.Numerics.Vector3 B, System.Numerics.Vector3 C)>();
+    foreach (var o in course.Objects.Where(o => o.Type.StartsWith("Stage_", StringComparison.Ordinal)))
+    {
+        if (resolver.ModelPath(o.Type) is not { } path) continue;
+        var world = System.Numerics.Matrix4x4.CreateScale(o.Actor.Scale) * o.Rotation * System.Numerics.Matrix4x4.CreateTranslation(o.Position);
+        foreach (var m in MKWSatellite.Formats.Models.Bfres.Parse(fs.Read(path)))
+            foreach (var sh in m.Shapes)
+                for (var i = 0; i + 2 < sh.Indices.Length; i += 3)
+                    tris.Add((System.Numerics.Vector3.Transform(sh.Positions[sh.Indices[i]], world),
+                              System.Numerics.Vector3.Transform(sh.Positions[sh.Indices[i + 1]], world),
+                              System.Numerics.Vector3.Transform(sh.Positions[sh.Indices[i + 2]], world)));
+        Console.WriteLine($"model {o.Type} at {o.Position}");
+    }
+    Console.WriteLine($"{tris.Count} triangles");
+    // Heights of all surfaces crossing the vertical line through (x, z).
+    List<float> Hits(float x, float z)
+    {
+        var hs = new List<float>();
+        foreach (var (a, b, c) in tris)
+        {
+            var d = (b.Z - c.Z) * (a.X - c.X) + (c.X - b.X) * (a.Z - c.Z);
+            if (MathF.Abs(d) < 1e-9f) continue;
+            var l1 = ((b.Z - c.Z) * (x - c.X) + (c.X - b.X) * (z - c.Z)) / d;
+            var l2 = ((c.Z - a.Z) * (x - c.X) + (a.X - c.X) * (z - c.Z)) / d;
+            var l3 = 1 - l1 - l2;
+            if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+            hs.Add(l1 * a.Y + l2 * b.Y + l3 * c.Y);
+        }
+        return hs;
+    }
+    string Rel(float y, List<float> hs)
+    {
+        var below = hs.Where(h => h <= y + 0.01f).DefaultIfEmpty(float.NaN).Max();
+        var above = hs.Where(h => h > y + 0.01f).DefaultIfEmpty(float.NaN).Min();
+        return $"surface below {y - below,7:0.00}  above {above - y,7:0.00}";
+    }
+    foreach (var lp in course.LapPoints)
+    {
+        var p = lp.Position;
+        Console.WriteLine($"lap {lp.Index,3} y {p.Y,8:0.0} size {lp.RectSize.X,5:0.#}x{lp.RectSize.Y,5:0.#} off {lp.RectOffset.X,6:0.##},{lp.RectOffset.Y,6:0.##}  {Rel(p.Y, Hits(p.X, p.Z))}");
+    }
+    foreach (var o in course.Objects.Where(o => o.Category is ObjectCategory.HighSpeedArea or ObjectCategory.RespawnArea or ObjectCategory.ValleyArea or ObjectCategory.BoostArea))
+    {
+        var p = o.Position;
+        Console.WriteLine($"{o.Type,-36} y {p.Y,8:0.0} scaleY {o.Actor.Scale.Y,7:0.#}  {Rel(p.Y, Hits(p.X, p.Z))}");
+    }
+    return 0;
+});
+root.Subcommands.Add(groundCmd);
+
 return root.Parse(args).Invoke();
 
 static GameFileSystem? OpenFs(string[]? romfs)

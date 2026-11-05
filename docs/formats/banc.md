@@ -37,13 +37,17 @@ rail's `IsClosed`.
 - `RectSize`/`RectOffset` form the point's gate rectangle in its local X/Y plane (verified: read by the rail parser).
   The gate faces local +Z, which follows the path: median 8–14° between the gate normal and the direction to the next
   point on Boo Cinema, Rainbow Road and Snow Mountain. Centring the rectangle on the offset is inferred, not traced.
-- The parser stores them on the runtime point at +0x50 (size X/Y) and +0x58 (offset X/Y), with a direction from
+- The parser stores them on the generic rail node at +0x50 (size X/Y) and +0x58 (offset X/Y), with a direction from
   `Rotate` at +0x60 (1.8 `RailGraph_ParseRail` 0x710029AD70). The code that tests a racer against the gate has not
-  been found yet, so where the rectangle sits is still inferred. A data pattern argues against "centred on the
-  offset": gates that were widened to one side or made taller have offset = size − base exactly (Airship Fortress
-  nodes 55-60: size 30 + d, offset X d; Y: (offset, size) = (10, 20), (30, 35), (6.21, 9.21), (3.86, 6.86)). That fits
-  an editor that keeps one edge fixed, i.e. centre = offset / 2, which puts every gate's bottom 1.5-7.5 units below
-  the node; centring on the offset puts some 12 units or more above it. Not changed in the viewer until traced.
+  been found; the gameplay lap object (0x5A0 bytes) keeps a gate centre at +0x18 and half-extents at +0x2C/+0x30
+  (default 40/40 from its vtable +0x50), read by its bounding-box helper 0x71007E84A0.
+- **Placement (inferred, checked against the course model):** the gate spans **(offset - size) / 2 .. (offset +
+  size) / 2** on each axis, i.e. centred at offset / 2. `mkwsat ground <course>` measures nodes against the stage
+  model: on Airship Fortress race every lap node is 0-0.3 units above the road. Centring on the offset (the viewer's
+  first guess) put nodes 12-17 (size 35, offset 30) 12.5-47.5 units above the road, unreachable while driving. "Top
+  edge = offset" fails nodes 29-34 (offset 0) in the covered section, whose ceiling is 11-19 units up. Offset / 2
+  gives every gate a bottom 1.5-5 units below the road and fits under that ceiling; it also matches gates widened to
+  one side, whose offset equals the growth (nodes 55-60: size 30 + d, offset d).
 - Lap nodes are not all on the ground: on Airship Fortress race nodes 38-40 rise from 742 to 778 over the launch onto
   the airship, so those gates hang in the air on the flight path.
 - `Dynamic` keys seen across the 57 race scenes: `CheckPoint` (float, 585 nodes), `IsStart` (57, one per scene),

@@ -21,6 +21,24 @@ public class CourseMathTests
         Assert.True(Vector3.Distance(up, expected) < 1e-4f, $"{up} vs {expected}");
     }
 
+    /// <summary>Gate spans (offset - size) / 2 .. (offset + size) / 2: Airship Fortress node 12 (size 20x35, offset 0,30).</summary>
+    [Fact]
+    public void GateCorners_CentredOnHalfOffset()
+    {
+        var raw = new MKWSatellite.Formats.Byml.BymlDict(2)
+        {
+            ["RectSize"] = new MKWSatellite.Formats.Byml.BymlArray(2) { 20f, 35f },
+            ["RectOffset"] = new MKWSatellite.Formats.Byml.BymlArray(2) { 0f, 30f },
+        };
+        var point = new BancRailPoint(0, new Vector3(0, 100, 0), Vector3.Zero, null, [], raw);
+        var lap = new LapPoint(point, null!, 0);
+        var g = lap.GateCorners();
+        Assert.Equal(100 - 2.5f, g[0].Y, 3); // bottom: (30 - 35) / 2 below the node
+        Assert.Equal(100 + 32.5f, g[2].Y, 3); // top: (30 + 35) / 2
+        Assert.Equal(-10f, g[0].X, 3);
+        Assert.Equal(10f, g[1].X, 3);
+    }
+
     [Fact]
     public void Classifier_KnownTypes()
     {
