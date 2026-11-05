@@ -42,3 +42,15 @@ keyed by what look like rail-point hashes. Banc scenes themselves don't use them
 
 ## Not yet supported
 Other newer node types; the reader throws `NotSupportedException` naming the type and offset.
+
+## Writing
+`BymlWriter` writes little-endian BYML with the source version (7 for 1.8 Banc). Value types are kept exactly as the
+reader returned them, so an unedited tree reads back equal: `mkwsat roundtrip` checks all 717 Banc scenes (0
+differences; 141.46 MB of data in, 141.47 MB out). Layout: header, key table, string table (both sorted ordinally),
+containers depth-first, then 64-bit values (8-aligned) and binary blobs. Identical subtrees are not shared, so files are
+not byte-identical to Nintendo's but within a few hundred bytes.
+
+Shipped Banc files decompress to a **power-of-two size**, zero-padded after the BYML data (e.g. Airship Fortress race:
+140 KB of data in 256 KB). The saver pads the same way. The game likely sizes load buffers from the resource size
+table (`System/Resource/ResourceSizeTable.Product.*`), not updated by the viewer, so a file whose padded size grows past
+the original may not load; the viewer warns when that happens.

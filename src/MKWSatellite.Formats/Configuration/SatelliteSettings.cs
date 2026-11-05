@@ -18,6 +18,10 @@ public sealed class SatelliteSettings
     [JsonPropertyName("romfs")]
     public List<string> Romfs { get; set; } = [];
 
+    /// <summary>Mod romfs folder the viewer saves edited scenes into (optional; defaults to <c>mod/romfs</c> in the working directory).</summary>
+    [JsonPropertyName("modOutput")]
+    public string? ModOutput { get; set; }
+
     /// <summary>Where the settings came from, for display.</summary>
     [JsonIgnore]
     public string Source { get; private set; } = "none";

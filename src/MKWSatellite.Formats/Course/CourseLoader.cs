@@ -42,6 +42,35 @@ public sealed partial class CourseLoader(GameFileSystem fs)
     [GeneratedRegex(@"^Race_([A-Za-z0-9]+)_")]
     private static partial Regex CourseNameRegex();
 
+    /// <summary>
+    /// Rebuilds a course after its race scene was edited: race-layer objects, rails and lap points come from
+    /// <paramref name="race"/>; the static layer (world tiles or _Fix) is reused as is.
+    /// </summary>
+    public CourseScene RebuildRace(CourseScene course, BancScene race)
+    {
+        var objects = race.Actors.Select(a => Make(a, CourseLayer.Race)).ToList();
+        var byHash = objects.GroupBy(o => o.Actor.Hash).ToDictionary(g => g.Key, g => g.First());
+        foreach (var o in objects)
+            foreach (var (dst, name) in o.OutgoingLinks)
+                if (byHash.TryGetValue(dst, out var target)) target.IncomingLinks.Add(new IncomingLink(o, name));
+        objects.AddRange(course.Objects.Where(o => o.Layer != CourseLayer.Race));
+        var rails = race.Rails.Select(r => new CourseRail(r, CourseLayer.Race)).ToList();
+        rails.AddRange(course.Rails.Where(r => r.Layer != CourseLayer.Race));
+        var lap = rails.Where(r => r.Kind == "LapPathGraph" && r.Layer == CourseLayer.Race)
+            .SelectMany(r => r.Rail.Points.Select((p, i) => new LapPoint(p, r, i))).ToList();
+        return new CourseScene
+        {
+            Name = course.Name,
+            RaceScene = race,
+            StaticLayerSource = course.StaticLayerSource,
+            Objects = objects,
+            Rails = rails,
+            LapPoints = lap,
+            PathBounds = course.PathBounds,
+            Database = course.Database,
+        };
+    }
+
     public CourseScene Load(string raceFile, IProgress<string>? progress = null)
     {
         var race = BancScene.Parse(fs.Read($"{BancScene.RomfsDirectory}/{raceFile}"));

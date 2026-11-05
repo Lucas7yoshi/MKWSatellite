@@ -19,7 +19,7 @@ Work in this order, then stop for review.
    - Check course texture formats early (Switch 2 may use ASTC).
    - Needs the project licence decided first (see DECISIONS.md).
 
-Deferred: Phive collision (surface types), editing and saving (BYML writer).
+Deferred: Phive collision (surface types). Editing and saving: started 2026-11-05 (race layer; see D17).
 
 ## Progress log
 
@@ -39,3 +39,4 @@ Deferred: Phive collision (surface types), editing and saving (BYML writer).
 | 2026-11-05 | UI scale now follows Windows' per-monitor display scale (DPI / 96) like a normal app: the window opens at size × scale and resizes and re-rasterises its font when moved to another monitor. Screenshots stay at scale 1 unless `--ui-scale`. |
 | 2026-11-05 | Bullet Bill no-finish zones traced (formats/banc.md): `IsForbidKillerFinish` on a route point holds until the next point; plus a turn/look-ahead check in code. Viewer draws red no-finish stretches and green `IsKillerReleasable` points (toggle). Path node dots, larger pick radius, screen-space hover/selection rings, hand cursor. Interstage and Rally scenes listed. |
 | 2026-11-05 | Bullet Bill look-ahead decoded: no finish within 30 units of a point turning > 0.45°/unit (or `ItemType` 1/2), or 30-50 units before one turning > 2°/unit. `BulletBillRules` + tests; drawn in orange next to the red data flags. |
+| 2026-11-05 | Editing (user): BYML writer (round-trips all 717 Banc scenes), zstd compression, `BymlEditHistory` undo/redo, race-layer rebuild after edits, inspector fields for position/rotation/scale and `Dynamic` values (add/remove bool keys), Ctrl+drag to move, Ctrl+Z/Y/S, save/revert with unsaved-changes prompt, `modOutput` setting. Not done: adding/deleting actors or rail points, gate size editing, resource size table update. |

@@ -44,6 +44,40 @@ banc.SetAction(parse =>
 });
 root.Subcommands.Add(banc);
 
+// roundtrip: check the BYML writer reproduces every scene (read -> write -> read gives an equal tree)
+var rtFilter = new Option<string>("--filter") { Description = "Only scenes whose file name contains this text." };
+var rtDir = new Option<string>("--dir") { Description = "romfs directory.", DefaultValueFactory = _ => BancScene.RomfsDirectory };
+var roundtrip = new Command("roundtrip", "Read, re-write and re-read BYML scenes; report any difference.") { rtFilter, rtDir };
+roundtrip.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var dir = parse.GetValue(rtDir)!;
+    var filter = parse.GetValue(rtFilter) ?? "";
+    var files = fs.ListFiles(dir, "*.byml.zs").Where(f => f.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+    var bad = 0;
+    long origTotal = 0, newTotal = 0;
+    foreach (var f in files)
+    {
+        var data = fs.Read($"{dir}/{f}");
+        var r = MKWSatellite.Formats.Byml.BymlReader.Parse(data);
+        var written = MKWSatellite.Formats.Byml.BymlWriter.Write(r.Root!, r.Version);
+        var back = MKWSatellite.Formats.Byml.BymlReader.Parse(written);
+        var used = data.Length - data.Reverse().TakeWhile(b => b == 0).Count();
+        origTotal += used; newTotal += written.Length;
+        if (MKWSatellite.Formats.Byml.BymlCompare.FirstDifference(r.Root, back.Root) is { } diff)
+        {
+            bad++;
+            Console.WriteLine($"DIFF {f}: {diff}");
+        }
+        else if (MKWSatellite.Formats.Byml.BymlWriter.PadToPowerOfTwo(written).Length > data.Length)
+            Console.WriteLine($"grows past original padded size: {f} ({written.Length} > {data.Length})");
+    }
+    Console.WriteLine($"{files.Count} files, {bad} different; data {origTotal} -> {newTotal} bytes");
+    return bad == 0 ? 0 : 2;
+});
+root.Subcommands.Add(roundtrip);
+
 // scan: parse every Banc scene, report failures and a census of actor types, rail kinds and Dynamic keys
 var scanFilter = new Option<string>("--filter") { Description = "Only scenes whose file name contains this text (e.g. Race_)." };
 var scanOut = new Option<string?>("--out") { Description = "Write the full census to this text file." };

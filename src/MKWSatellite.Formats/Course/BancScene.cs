@@ -16,13 +16,22 @@ public sealed class BancScene
     public required IReadOnlyList<BancActor> Actors { get; init; }
     public required IReadOnlyList<BancRail> Rails { get; init; }
     public required BymlDict Raw { get; init; }
+    /// <summary>BYML version of the file (7 in 1.8), kept for saving.</summary>
+    public ushort BymlVersion { get; init; } = 7;
 
     public static BancScene Parse(byte[] decompressedByml)
     {
-        var root = BymlReader.Parse(decompressedByml).Root as BymlDict
-                   ?? throw new InvalidDataException("Banc root is not a dictionary.");
+        var reader = BymlReader.Parse(decompressedByml);
+        var root = reader.Root as BymlDict ?? throw new InvalidDataException("Banc root is not a dictionary.");
+        return FromRoot(root, reader.Version);
+    }
+
+    /// <summary>Wraps a (possibly edited) BYML tree. Actors and rails keep references into <paramref name="root"/>.</summary>
+    public static BancScene FromRoot(BymlDict root, ushort bymlVersion = 7)
+    {
         return new BancScene
         {
+            BymlVersion = bymlVersion,
             FilePath = root.Get<string>("FilePath") ?? "",
             Actors = BancScene.Items(root.Array("Actors")).OfType<BymlDict>().Select(BancActor.From).ToList(),
             Rails = BancScene.Items(root.Array("Rails")).OfType<BymlDict>().Select(BancRail.From).ToList(),

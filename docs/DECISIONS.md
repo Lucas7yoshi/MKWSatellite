@@ -64,3 +64,11 @@ scored on image smoothness; the winner is documented in formats/models.md and co
 The goal is readable geometry for runners, not the game's look: one directional light, albedo, alpha cutout. Textures
 above 1024 px use a smaller stored mip (less VRAM, faster decoding). The 2D overlay draws on top of models (no depth
 test) so paths stay visible inside covered stages.
+
+### D17. Editing: race layer only, saved to a separate mod folder (2026-11-05)
+Only the race scene (`Race_*.bcett`) is editable; world tiles and `_Fix` layers are shared with other courses or
+free roam and stay read-only. Edits change the parsed BYML tree in place through `BymlEditHistory` (one key per step,
+whole values replaced, so undo restores references), then only the race layer is rebuilt. Saving writes
+`<mod folder>/Banc/<scene>` (zstd, power-of-two padded) and refuses any folder inside a game dump (a layer with
+`System/Resource`). Adding the mod folder as the last `romfs` layer loads the edits back. The resource size table is
+not rewritten; growth past the original padded size is reported instead.

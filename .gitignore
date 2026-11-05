@@ -500,3 +500,5 @@ out/
 
 # Dear ImGui per-user window layout
 imgui.ini
+# Edited files saved by the viewer (a mod romfs). Game data: never commit.
+mod/

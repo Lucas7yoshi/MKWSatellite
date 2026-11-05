@@ -19,7 +19,7 @@ namespace MKWSatellite.App;
 /// Top-down: left-drag pans, wheel zooms, click selects, right-drag measures distance.
 /// 3D: left-drag orbits, right/middle-drag pans, wheel zooms, WASD/QE moves, click selects.
 /// </summary>
-public sealed class SatelliteApp : IDisposable
+public sealed partial class SatelliteApp : IDisposable
 {
     private const float BaseLeftPanelWidth = 330, BaseRightPanelWidth = 380;
     private float _uiScale = 1, _textScale = 1;
@@ -88,6 +88,7 @@ public sealed class SatelliteApp : IDisposable
         ApplyUiScale(scale);
         foreach (var m in _input.Mice) m.Scroll += OnScroll;
         OpenGame();
+        InitEditing();
         if (_fs is not null)
         {
             _models = new ModelLibrary(_gl, _fs);
@@ -177,8 +178,13 @@ public sealed class SatelliteApp : IDisposable
         catch (Exception e) { _fsError = e.Message; }
     }
 
-    private void LoadCourse(string file)
+    private void LoadCourse(string file, bool force = false)
     {
+        if (!force && _history.IsDirty)
+        {
+            if (file != _courseFile) _pendingCourse = file; // asks first (DrawDiscardPopup)
+            return;
+        }
         _courseFile = file;
         _courseError = null;
         _rulerStart = _rulerEnd = null;
@@ -186,6 +192,8 @@ public sealed class SatelliteApp : IDisposable
         {
             var course = _loader!.Load(file);
             _view.SetCourse(course, _camera);
+            _history = new();
+            _saveMessage = null;
             var ys = course.Objects.Select(o => o.Position.Y).Concat(course.LapPoints.Select(l => l.Position.Y)).ToList();
             _camera.DepthMinY = (ys.Count > 0 ? ys.Min() : 0) - 1500;
             _camera.DepthMaxY = (ys.Count > 0 ? ys.Max() : 0) + 1500;
@@ -226,6 +234,12 @@ public sealed class SatelliteApp : IDisposable
 
     private void HandleMouse3D(IMouse mouse, Vector2 pos, bool free, float dt)
     {
+        if (HandleGrab(mouse, pos, free, (s, y) => OrbitHit(_orbit, s, y)))
+        {
+            _view.UpdateHover(_orbit, pos, false);
+            _lastMouse = pos;
+            return;
+        }
         var delta = pos - _lastMouse;
         if (mouse.IsButtonPressed(MouseButton.Left))
         {
@@ -268,6 +282,12 @@ public sealed class SatelliteApp : IDisposable
         var pos = mouse.Position;
         var free = !ImGui.GetIO().WantCaptureMouse && InViewport(pos);
         if (_use3D) { HandleMouse3D(mouse, pos, free, dt); return; }
+        if (HandleGrab(mouse, pos, free, (s, y) => TopDownHit(_camera, s, y)))
+        {
+            _view.UpdateHover(_camera, pos, false);
+            _lastMouse = pos;
+            return;
+        }
 
         if (mouse.IsButtonPressed(MouseButton.Left))
         {
@@ -307,6 +327,7 @@ public sealed class SatelliteApp : IDisposable
             ApplyUiScale(s);
         }
         _imgui.Update((float)delta);
+        HandleEditKeys();
         UpdateViewportRect();
         if (!_options.IsScreenshot) HandleMouse((float)delta);
         _models?.PumpUploads(_options.IsScreenshot ? 200 : 12);
@@ -335,6 +356,7 @@ public sealed class SatelliteApp : IDisposable
 
         DrawLeftPanel();
         DrawInspector();
+        DrawDiscardPopup();
 
         _imgui.Render();
         _frame++;
@@ -401,7 +423,7 @@ public sealed class SatelliteApp : IDisposable
         {
             dl.AddRectFilled(_orbit.ViewportPos, _orbit.ViewportPos + new Vector2(_orbit.ViewportSize.X, HeaderHeight), 0xC0100C0A);
             dl.AddText(_orbit.ViewportPos + HeaderLine(0), 0xFFFFFFFF,
-                $"{_view.Course.Name}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
+                $"{_view.Course.Name}{(_history.IsDirty ? " (edited)" : "")}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
             dl.AddText(_orbit.ViewportPos + HeaderLine(1), 0xFFB0B0B0,
                 "3D: left-drag orbit, right-drag pan, wheel zoom, WASD/QE move (Shift = faster)" + ModelStatus());
             return;
@@ -419,7 +441,7 @@ public sealed class SatelliteApp : IDisposable
         dl.AddText(origin + new Vector2(px + 6, -lh * 0.7f), 0xFFFFFFFF, $"{len:0.#} units");
         dl.AddRectFilled(_camera.ViewportPos, _camera.ViewportPos + new Vector2(_camera.ViewportSize.X, HeaderHeight), 0xC0100C0A);
         dl.AddText(_camera.ViewportPos + HeaderLine(0), 0xFFFFFFFF,
-            $"{_view.Course.Name}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
+            $"{_view.Course.Name}{(_history.IsDirty ? " (edited)" : "")}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
         dl.AddText(_camera.ViewportPos + HeaderLine(1), 0xFFB0B0B0, "top-down: +X right, +Z down" + ModelStatus());
     }
 
@@ -484,6 +506,7 @@ public sealed class SatelliteApp : IDisposable
         ImGui.SameLine();
         if (ImGui.Button("Frame course")) { _view.FrameCourse(_camera); FrameOrbit(); _view.Invalidate(); }
         ImGui.Separator();
+        DrawEditPanel();
         DrawLayerToggles();
         ImGui.End();
     }
@@ -619,11 +642,14 @@ public sealed class SatelliteApp : IDisposable
                 }
                 if (o.Actor.Raw.Dict("ScreenSetting") is { } screens)
                     ImGui.TextColored(new Vector4(0.6f, 0.8f, 1, 1), "Split-screen: " + string.Join(", ", screens.Select(kv => $"{kv.Key}={kv.Value}")) + "  (1 = not spawned in that mode; ignored in single-player)");
-                Vec("Position", o.Position);
-                Vec("Rotate (deg)", o.Actor.Rotate * (180f / MathF.PI));
-                Vec("Scale", o.Actor.Scale);
                 if (o.Actor.Raw.Get<string>("AreaName") is { } area) ImGui.TextDisabled($"area: {area}");
-                Dict("Dynamic", o.Actor.Dynamic);
+                if (!DrawEditFields())
+                {
+                    Vec("Position", o.Position);
+                    Vec("Rotate (deg)", o.Actor.Rotate * (180f / MathF.PI));
+                    Vec("Scale", o.Actor.Scale);
+                    Dict("Dynamic", o.Actor.Dynamic);
+                }
                 Dict("All fields", o.Actor.Raw);
                 break;
             case PickedLapPoint { Point: var l }:
@@ -632,18 +658,24 @@ public sealed class SatelliteApp : IDisposable
                 if (l.IsStart) ImGui.Text("IsStart");
                 if (l.IsGoal) ImGui.Text("IsGoal");
                 if (l.IsLapCheck) ImGui.Text("IsLapCheck");
-                Vec("Position", l.Position);
-                Vec("Rotate (deg)", l.Point.Rotate * (180f / MathF.PI));
                 ImGui.Text($"Gate size  {l.RectSize.X:0.##} x {l.RectSize.Y:0.##}");
                 ImGui.Text($"Gate offset {l.RectOffset.X:0.##}, {l.RectOffset.Y:0.##}");
-                Dict("Dynamic", l.Point.Dynamic);
+                if (!DrawEditFields())
+                {
+                    Vec("Position", l.Position);
+                    Vec("Rotate (deg)", l.Point.Rotate * (180f / MathF.PI));
+                    Dict("Dynamic", l.Point.Dynamic);
+                }
                 Dict("All fields", l.Point.Raw);
                 break;
             case PickedRailPoint { Rail: var r, Index: var i }:
                 var pt = r.Rail.Points[i];
                 ImGui.Text($"{r.Kind} node {i} ({r.Layer})");
-                Vec("Position", pt.Translation);
-                Dict("Dynamic", pt.Dynamic);
+                if (!DrawEditFields())
+                {
+                    Vec("Position", pt.Translation);
+                    Dict("Dynamic", pt.Dynamic);
+                }
                 Dict("All fields", pt.Raw);
                 break;
         }

@@ -61,6 +61,28 @@ public sealed class CourseView(PrimitiveBatch batch)
     private IViewCamera _cam = null!;
     private OrbitCamera? _orbit;
 
+    /// <summary>
+    /// Swaps in a rebuilt course (after an edit) without moving the camera. The selection is kept by identity of the
+    /// underlying BYML node, which edits do not replace.
+    /// </summary>
+    public void ReplaceCourse(CourseScene course)
+    {
+        Course = course;
+        Selected = Remap(Selected, course);
+        Hovered = Remap(Hovered, course);
+        _lookAhead.Clear();
+        _dirty = true;
+    }
+
+    private static Pickable? Remap(Pickable? p, CourseScene c) => p switch
+    {
+        PickedObject o => c.Objects.FirstOrDefault(x => ReferenceEquals(x.Actor.Raw, o.Object.Actor.Raw)) is { } n ? new PickedObject(n) : null,
+        PickedLapPoint l => c.LapPoints.FirstOrDefault(x => ReferenceEquals(x.Point.Raw, l.Point.Point.Raw)) is { } n ? new PickedLapPoint(n) : null,
+        PickedRailPoint r => c.Rails.FirstOrDefault(x => ReferenceEquals(x.Rail.Raw, r.Rail.Rail.Raw)) is { } n && r.Index < n.Rail.Points.Count
+            ? new PickedRailPoint(n, r.Index) : null,
+        _ => null,
+    };
+
     public void SetCourse(CourseScene course, TopDownCamera camera)
     {
         Course = course;

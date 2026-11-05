@@ -16,6 +16,13 @@ public static class Zstd
         return d.Unwrap(data).ToArray();
     }
 
+    /// <summary>Compresses to a single zstd frame (no dictionary), as the game's <c>.zs</c> files are.</summary>
+    public static byte[] Compress(ReadOnlySpan<byte> data, int level = 19)
+    {
+        using var c = new Compressor(level);
+        return c.Wrap(data).ToArray();
+    }
+
     /// <summary>Returns the data decompressed if it is a zstd frame, otherwise unchanged.</summary>
     public static byte[] DecompressIfNeeded(byte[] data) => IsCompressed(data) ? Decompress(data) : data;
 }
