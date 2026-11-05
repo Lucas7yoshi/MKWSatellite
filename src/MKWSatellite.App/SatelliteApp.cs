@@ -567,6 +567,7 @@ public sealed partial class SatelliteApp : IDisposable
         }
         Toggle("Glide / gravity / guide rails", ref L.OtherRails, Palette.ForRail("GlidePath"));
         Toggle("Path node dots", ref L.Nodes);
+        Toggle("Lap progress zones", ref L.ProgressZones, Palette.ProgressZone);
         ImGui.TextDisabled("Objects");
         Toggle("Item boxes", ref L.ItemBoxes, Palette.ForCategory(ObjectCategory.ItemBox));
         Toggle("Coins", ref L.Coins, Palette.ForCategory(ObjectCategory.Coin));

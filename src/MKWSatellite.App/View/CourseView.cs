@@ -15,6 +15,8 @@ public sealed record PickedRailPoint(CourseRail Rail, int Index) : Pickable(Rail
 public sealed class ViewLayers
 {
     public bool LapPath = true, CheckpointGates = true, AllGates = false, CheckpointLabels = true;
+    /// <summary>The volume between consecutive lap gates that counts as being on the lap path (traced, see LapPoint).</summary>
+    public bool ProgressZones = true;
     public bool AiRoutes = true, OtherRails = true;
     /// <summary>Bullet Bill route flags: no-finish stretches (<c>IsForbidKillerFinish</c>) and releasable points.</summary>
     public bool BulletZones = true;
@@ -239,6 +241,42 @@ public sealed class CourseView(PrimitiveBatch batch)
                     else if (Layers.Nodes)
                         Dot(pts[i].Translation, 2.5f, isRoute ? routeColor : Palette.ForRail(r.Kind));
                 }
+        }
+
+        // 2b. Progress zones: the game places you on segment a->b when you are between the two gate planes and inside
+        // the gates' width/height interpolated along the segment, so the zone is the gates joined corner to corner.
+        if (Layers.LapPath && Layers.ProgressZones)
+        {
+            var byPoint = new Dictionary<BancRailPoint, LapPoint>(ReferenceEqualityComparer.Instance);
+            foreach (var lp in c.LapPoints) byPoint[lp.Point] = lp;
+            var fill = Palette.WithAlpha(Palette.ProgressZone, is3D ? (byte)0x18 : (byte)0x26);
+            var edge = Palette.WithAlpha(Palette.ProgressZone, 0xB0);
+            void Zone(LapPoint a, LapPoint b)
+            {
+                var ga = a.GateCorners();
+                var gb = b.GateCorners();
+                batch.Quad(ga[0], ga[1], gb[1], gb[0], fill); // floor
+                Line(ga[0], gb[0], 1.5f, edge);
+                Line(ga[1], gb[1], 1.5f, edge);
+                if (!is3D) return;
+                batch.Quad(ga[0], gb[0], gb[3], ga[3], fill); // sides
+                batch.Quad(ga[1], gb[1], gb[2], ga[2], fill);
+                Line(ga[3], gb[3], 1f, edge);
+                Line(ga[2], gb[2], 1f, edge);
+            }
+            foreach (var rail in c.Rails)
+            {
+                if (rail.Kind != "LapPathGraph") continue;
+                var pts = rail.Rail.Points;
+                for (var i = 0; i < pts.Count; i++)
+                {
+                    if (!byPoint.TryGetValue(pts[i], out var a)) continue;
+                    var next = i + 1 < pts.Count ? pts[i + 1] : rail.Rail.IsClosed && pts.Count > 2 ? pts[0] : null;
+                    if (next is not null && byPoint.TryGetValue(next, out var b)) Zone(a, b);
+                    foreach (var dst in pts[i].LinkTargets)
+                        if (c.PointsByHash.TryGetValue(dst, out var q) && byPoint.TryGetValue(q, out var lb)) Zone(a, lb);
+                }
+            }
         }
 
         // 3. Lap gates: a line between the bottom corners top-down, the full upright rectangle in 3D.

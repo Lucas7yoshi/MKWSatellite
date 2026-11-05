@@ -21,22 +21,33 @@ public class CourseMathTests
         Assert.True(Vector3.Distance(up, expected) < 1e-4f, $"{up} vs {expected}");
     }
 
-    /// <summary>Gate spans (offset - size) / 2 .. (offset + size) / 2: Airship Fortress node 12 (size 20x35, offset 0,30).</summary>
+    /// <summary>Gate spans offset ± size (traced, 1.8 0x71007993A0 / 0x71007EE5D0): Airship Fortress node 12 (size 20x35, offset 0,30).</summary>
     [Fact]
-    public void GateCorners_CentredOnHalfOffset()
+    public void GateCorners_OffsetPlusMinusSize()
     {
         var raw = new MKWSatellite.Formats.Byml.BymlDict(2)
         {
             ["RectSize"] = new MKWSatellite.Formats.Byml.BymlArray(2) { 20f, 35f },
-            ["RectOffset"] = new MKWSatellite.Formats.Byml.BymlArray(2) { 0f, 30f },
+            ["RectOffset"] = new MKWSatellite.Formats.Byml.BymlArray(2) { 4f, 30f },
         };
         var point = new BancRailPoint(0, new Vector3(0, 100, 0), Vector3.Zero, null, [], raw);
         var lap = new LapPoint(point, null!, 0);
         var g = lap.GateCorners();
-        Assert.Equal(100 - 2.5f, g[0].Y, 3); // bottom: (30 - 35) / 2 below the node
-        Assert.Equal(100 + 32.5f, g[2].Y, 3); // top: (30 + 35) / 2
-        Assert.Equal(-10f, g[0].X, 3);
-        Assert.Equal(10f, g[1].X, 3);
+        Assert.Equal(100 + 30 - 35, g[0].Y, 3);
+        Assert.Equal(100 + 30 + 35, g[2].Y, 3);
+        Assert.Equal(4 - 20f, g[0].X, 3);
+        Assert.Equal(4 + 20f, g[1].X, 3);
+    }
+
+    /// <summary>The game's point matrix row 0 (right) is (cy*cz, cy*sz, -sy) (0x71007993A0); ours must match.</summary>
+    [Theory]
+    [InlineData(0.3f, -1.06f, 0.1f)]
+    [InlineData(-3.142f, 0.504f, 3.142f)]
+    public void EulerXyz_RightVectorMatchesGame(float x, float y, float z)
+    {
+        var right = Vector3.TransformNormal(Vector3.UnitX, CourseMath.EulerXyz(new Vector3(x, y, z)));
+        var expected = new Vector3(MathF.Cos(y) * MathF.Cos(z), MathF.Cos(y) * MathF.Sin(z), -MathF.Sin(y));
+        Assert.True(Vector3.Distance(right, expected) < 1e-4f, $"{right} vs {expected}");
     }
 
     [Fact]

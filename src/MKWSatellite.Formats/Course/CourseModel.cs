@@ -77,12 +77,12 @@ public sealed record CourseRail(BancRail Rail, CourseLayer Layer)
 }
 
 /// <summary>
-/// A lap-path node with its gate rectangle. The game reads <c>RectSize</c>/<c>RectOffset</c> for every rail point
-/// (RailGraph_ParseRail, 1.8 0x710029AD70) into a rectangle in the point's local X/Y plane, so the gate faces local Z.
-/// The rectangle spans (offset - size) / 2 .. (offset + size) / 2 on each axis, i.e. its centre is at offset / 2.
-/// Inferred, not traced: it is the only reading under which every Airship Fortress gate contains the road at its node
-/// (nodes measured 0-0.3 units above the stage model) while fitting under the covered section's 11-19 unit ceiling,
-/// and it matches gates widened to one side (offset = growth). See docs/formats/banc.md.
+/// A lap-path node with its progress gate. Traced in 1.8: the point setup (0x71007993A0) stores <c>RectSize</c> as the
+/// gate's half-width/half-height, and 0x71007EE5D0 moves the gate centre to node + <c>RectOffset.X</c> * right +
+/// <c>RectOffset.Y</c> * up (rows 0/1 of the <c>Rotate</c> matrix). So the gate spans offset ± size on each axis.
+/// Progress (0x7100AAD950 → <c>RailPoint_IsInSegmentVolume</c> 0x71007F34D0) finds the segment whose two gate planes
+/// (through the centres, facing local Z) you are between, then checks you are within the gates' width/height,
+/// interpolated along the segment. See docs/formats/banc.md.
 /// </summary>
 public sealed record LapPoint(BancRailPoint Point, CourseRail Rail, int Index)
 {
@@ -97,15 +97,25 @@ public sealed record LapPoint(BancRailPoint Point, CourseRail Rail, int Index)
     public bool IsLapCheck => Point.Dynamic?.Get<bool>("IsLapCheck") == true;
     public int? ChangeId => Point.Dynamic?.TryGetValue("ChangeId", out var v) == true && v is int i ? i : null;
 
+    /// <summary>Gate centre: the node moved by <c>RectOffset</c> along the point's local X (right) and Y (up).</summary>
+    public Vector3 GateCentre
+    {
+        get
+        {
+            var m = CourseMath.EulerXyz(Point.Rotate);
+            return Position + Vector3.TransformNormal(Vector3.UnitX, m) * RectOffset.X + Vector3.TransformNormal(Vector3.UnitY, m) * RectOffset.Y;
+        }
+    }
+
     /// <summary>The four gate corners in world space (bottom-left, bottom-right, top-right, top-left in local X/Y).</summary>
     public Vector3[] GateCorners()
     {
         var m = CourseMath.EulerXyz(Point.Rotate);
         var x = Vector3.TransformNormal(Vector3.UnitX, m);
         var y = Vector3.TransformNormal(Vector3.UnitY, m);
-        var c = Position + x * (RectOffset.X / 2) + y * (RectOffset.Y / 2);
-        var hx = x * (RectSize.X / 2);
-        var hy = y * (RectSize.Y / 2);
+        var c = GateCentre;
+        var hx = x * RectSize.X;
+        var hy = y * RectSize.Y;
         return [c - hx - hy, c + hx - hy, c + hx + hy, c - hx + hy];
     }
 }

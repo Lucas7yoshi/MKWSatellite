@@ -41,28 +41,25 @@ rail's `IsClosed`.
   `Rotate` at +0x60 (1.8 `RailGraph_ParseRail` 0x710029AD70). The code that tests a racer against the gate has not
   been found; the gameplay lap object (0x5A0 bytes) keeps a gate centre at +0x18 and half-extents at +0x2C/+0x30
   (default 40/40 from its vtable +0x50), read by its bounding-box helper 0x71007E84A0.
-- **The drawn gate is not the game's progress test (partly traced, 1.8).** `RailPoint_IsInSegmentVolume`
-  (0x71007F34D0) tests a position against the *tube between two consecutive rail points*: centre and frame are
-  interpolated (lerp / slerp) along the segment; laterally |dot(right, d)| <= lerp(half-width at point +0x2C) +
-  margin, with a per-point side mode (+0x530) that switches to the straight line between the two points' edges;
-  vertically dot(up, d) >= -(lerp(height +0x30) + margin), with the upper bound optional. For lap points the Dynamic
-  parser fills +0x2C/+0x30 from `Width`-like / `Height` keys (`Height` = MurmurHash3 0xC3DF69CD; neither key occurs in
-  any 1.8 lap path) and falls back to 40 when <= 1. What sets them before that (possibly RectSize) is not found, so
-  the real width of the progress zone is unconfirmed and the gate rectangle should be read as an approximation.
-  Callers: 0x71005B7600, 0x71005BD550, 0x7100AAD950 (not yet read).
-- **Placement (inferred, checked against the course model):** the gate spans **(offset - size) / 2 .. (offset +
-  size) / 2** on each axis, i.e. centred at offset / 2. `mkwsat ground <course>` measures nodes against the stage
-  model: on Airship Fortress race every lap node is 0-0.3 units above the road. Centring on the offset (the viewer's
-  first guess) put nodes 12-17 (size 35, offset 30) 12.5-47.5 units above the road, unreachable while driving. "Top
-  edge = offset" fails nodes 29-34 (offset 0) in the covered section, whose ceiling is 11-19 units up. Offset / 2
-  gives every gate a bottom 1.5-5 units below the road and fits under that ceiling; it also matches gates widened to
-  one side, whose offset equals the growth (nodes 55-60: size 30 + d, offset d).
-- **Sideways (X) sign, checked over all race scenes:** `mkwsat gateturn` finds the offset points to the inside of the
-  lap path's bend for 720 gates and to the outside for 372 (178 near-straight skipped), consistent with gates widened
-  to catch corner cuts. `mkwsat gatefit` counts wall hits across offset gates: on SFC Mario Circuit G, 14 with the
-  current sign vs 74 flipped. Neither test separates "centre at offset / 2" from "no X shift" or "centre at offset";
-  that rests on the Y evidence above. Example: SFC Mario Circuit G checkpoint 2 (size 58, offset 38.3, Rotate 0)
-  spans from the road's left edge across the inside sand to the infield, i.e. it covers the corner cut.
+- **Gates and lap progress (traced, 1.8).**
+  - Graph build `0x7100799270` creates each lap point and calls `0x71007993A0(point, record)`: position (+0xC) =
+    `Translation`; rows +0x38/+0x44/+0x50 = right/up/forward from `Rotate` (right = (cy·cz, cy·sz, -sy)); half-width
+    +0x2C = **`RectSize.X`**, half-height +0x30 = **`RectSize.Y`** (unhalved; `Scale` is the fallback).
+  - `0x71007EE5D0` stores `RectOffset` at +0x24 and sets the gate centre +0x18 = position + `RectOffset.X` · right +
+    `RectOffset.Y` · up. So **a gate spans offset ± size** on each axis: RectSize is a half-extent, RectOffset a full
+    shift.
+  - The lap class's Dynamic parser (`0x7102990F20`) reads optional `Size` / `Height` (MurmurHash3 0xB4A58247 /
+    0xC3DF69CD, never present in 1.8 lap paths) and falls back to 40 only when the value is <= 1.
+  - Locating a racer (`0x7100AAD950`): for each segment a→b, t = d_a / (d_a - d_b) with d = signed distance to the
+    gate plane (through the centre, normal = forward row); t must be in [0, 1]. Then `RailPoint_IsInSegmentVolume`
+    (0x71007F34D0, margin 0) checks |dot(right, p - centre(t))| <= lerp(half-width) and dot(up, ...) >= -lerp(height)
+    (upper bound optional), with centre lerped and frame slerped; a per-point side mode (+0x530) swaps the lateral test
+    on one side for the straight line between the two gates' edges. Of the passing segments the nearest point wins.
+  - So the progress zone is the gates joined corner to corner, which the viewer draws ("Lap progress zones").
+  - Confirmed in game (user, 2026-11-05): driving around the old half-size, offset/2 gates at SFC Mario Circuit G
+    checkpoints 1-3 still counted; with the traced rule those gates span the corridor wall to wall.
+  - Earlier guesses (centre at offset / 2, size as full width, `mkwsat ground`/`gatefit`/`gateturn` statistics) are
+    superseded; the tools remain for checking placements against geometry.
 - Lap nodes are not all on the ground: on Airship Fortress race nodes 38-40 rise from 742 to 778 over the launch onto
   the airship, so those gates hang in the air on the flight path.
 - `Dynamic` keys seen across the 57 race scenes: `CheckPoint` (float, 585 nodes), `IsStart` (57, one per scene),
