@@ -596,6 +596,66 @@ colCmd.SetAction(parse =>
         Console.WriteLine($"lap nodes over collision: {below.Count}/{course.LapPoints.Count}; node height above surface: median {below[below.Count / 2]:0.00}, p10 {below[below.Count / 10]:0.00}, p90 {below[below.Count * 9 / 10]:0.00}");
     foreach (var (k, n) in hitMat.OrderByDescending(kv => kv.Value)) Console.WriteLine($"  under lap nodes: {n,4} x {k}");
 
+    // Volumes vs area actors: split each volume material's triangles into connected pieces and match every
+    // Rescue/Valley area actor (physics box, placed) to the piece it overlaps most (IoU of world AABBs).
+    {
+        static (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) Box(IEnumerable<System.Numerics.Vector3> ps)
+        {
+            var mn = new System.Numerics.Vector3(float.MaxValue); var mx = new System.Numerics.Vector3(float.MinValue);
+            foreach (var q in ps) { mn = System.Numerics.Vector3.Min(mn, q); mx = System.Numerics.Vector3.Max(mx, q); }
+            return (mn, mx);
+        }
+        static float Vol((System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) b) { var d = System.Numerics.Vector3.Max(b.Max - b.Min, System.Numerics.Vector3.Zero); return d.X * d.Y * d.Z; }
+        static float IoU((System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) a, (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) b)
+        {
+            var i = Vol((System.Numerics.Vector3.Max(a.Min, b.Min), System.Numerics.Vector3.Min(a.Max, b.Max)));
+            var u = Vol(a) + Vol(b) - i;
+            return u > 0 ? i / u : 0;
+        }
+        var pieces = new List<(string Name, (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) Box, int Tris)>();
+        foreach (var g in Enumerable.Range(0, mesh.TriangleCount).Where(t => mesh.TriangleMaterial[t] >= 0)
+                     .GroupBy(t => names.Describe(mesh.Materials[mesh.TriangleMaterial[t]]))
+                     .Where(g => g.Key.StartsWith("Rescue") || g.Key.StartsWith("Valley") || g.Key.StartsWith("Fall")))
+        {
+            var tris = g.ToList();
+            var parent = Enumerable.Range(0, tris.Count).ToArray();
+            int Find(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
+            var byVert = new Dictionary<(int, int, int), int>();
+            for (var i = 0; i < tris.Count; i++)
+                for (var v = 0; v < 3; v++)
+                {
+                    var q = P[3 * tris[i] + v];
+                    var key = ((int)MathF.Round(q.X * 20), (int)MathF.Round(q.Y * 20), (int)MathF.Round(q.Z * 20));
+                    if (byVert.TryGetValue(key, out var j)) parent[Find(i)] = Find(j); else byVert[key] = i;
+                }
+            foreach (var comp in Enumerable.Range(0, tris.Count).GroupBy(Find))
+                pieces.Add((g.Key, Box(comp.SelectMany(i => new[] { P[3 * tris[i]], P[3 * tris[i] + 1], P[3 * tris[i] + 2] })), comp.Count()));
+        }
+        Console.WriteLine($"volume pieces: {pieces.Count}");
+        foreach (var grp in pieces.GroupBy(x => x.Name)) Console.WriteLine($"  {grp.Count(),4} x {grp.Key}");
+        var used = new HashSet<int>();
+        var areas = course.Objects.Where(o => o.Category is ObjectCategory.RespawnArea or ObjectCategory.ValleyArea).ToList();
+        Console.WriteLine($"area actors (respawn/valley): {areas.Count}");
+        foreach (var o in areas)
+        {
+            var sh = resolver.AreaShapeOf(o.Type);
+            var m = System.Numerics.Matrix4x4.CreateScale(o.Actor.Scale) * o.Rotation * System.Numerics.Matrix4x4.CreateTranslation(o.Position);
+            var corners = Enumerable.Range(0, 8).Select(k => System.Numerics.Vector3.Transform(new System.Numerics.Vector3(
+                (k & 1) == 0 ? sh.Min.X : sh.Max.X, (k & 2) == 0 ? sh.Min.Y : sh.Max.Y, (k & 4) == 0 ? sh.Min.Z : sh.Max.Z), m));
+            var ab = Box(corners);
+            var best = -1; var bi = 0f;
+            for (var i = 0; i < pieces.Count; i++) { var v = IoU(ab, pieces[i].Box); if (v > bi) { bi = v; best = i; } }
+            if (best >= 0) used.Add(best);
+            Console.WriteLine(FormattableString.Invariant($"  {o.Type,-32} at {o.Position.X:0},{o.Position.Y:0},{o.Position.Z:0}  -> ") +
+                (best < 0 ? "no overlapping volume" : FormattableString.Invariant($"{pieces[best].Name} (IoU {bi:0.00})")));
+        if (best >= 0 && Environment.GetEnvironmentVariable("MKWSAT_ALL") == "1")
+            Console.WriteLine(FormattableString.Invariant($"      area {ab.Min:0.00}..{ab.Max:0.00}  volume {pieces[best].Box.Min:0.00}..{pieces[best].Box.Max:0.00}  scale {o.Actor.Scale:0.00}"));
+        }
+        var unmatched = Enumerable.Range(0, pieces.Count).Where(i => !used.Contains(i)).ToList();
+        Console.WriteLine($"volume pieces with no area actor: {unmatched.Count}");
+        foreach (var grp in unmatched.GroupBy(i => pieces[i].Name)) Console.WriteLine($"  {grp.Count(),4} x {grp.Key}");
+    }
+
     if (parse.GetValue(colObj) is { } objPath)
     {
         using var w = new StreamWriter(objPath);

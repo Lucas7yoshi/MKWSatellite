@@ -98,6 +98,23 @@ lap node and reports the node's height above the first surface and that surface'
 | Crown City (`Race_WestCity_A`) | 41 | 350,960 | 52/52 | 0.00 | Road/Asphalt 35, Road/Concrete 10 |
 | Rainbow Road | 5 | 183,750 | 203/219 | 0.00 | Road/Rainbow 142 |
 
+**Volumes vs area actors.** `mkwsat collision` also splits the `Rescue`/`Valley`/`Fall` triangles into connected
+pieces and matches each `SystemObj_RescueArea_00`/`SystemObj_ValleyArea_00` actor's placed physics box to the piece it
+overlaps most:
+
+| Course | Area actors | Matched (IoU) | Pieces with no actor |
+|---|---|---|---|
+| Airship Fortress | 2 | 2 (0.86) | 0 |
+| DK Summit | 13 | 13 (0.86) | 0 |
+| Crown City | 9 | 9 (0.86) | 1 Rescue sensor box, 2 Valley boxes, 7 `Rescue` surfaces on the Ground layer (Kusa/Concrete/Iron) |
+| Rainbow Road | 10 | 10 (0.86) | 488 `Rescue` surfaces on stage meshes (Cloud, Iron, Kusa, Ice, Concrete) |
+
+So the sensor `Rescue` and `Valley`-layer boxes in the race compound are the area actors' own shapes baked in, not a
+separate kind of zone. The collision box is slightly smaller on every side than the actor box (0.5–1.8 units, not
+uniform per axis; maybe convex-radius handling, **unverified**). The `Rescue` material on ordinary Ground-layer
+geometry has no area actor; reading it as "touching this surface respawns you" is **unverified**. A few Crown City
+boxes have no actor in the race scene; their source is unknown.
+
 Reading a course takes 0.1–0.5 s. DK Summit's snowy road is `Slip`/`Snow`, which matches how it drives.
 
 ## Viewer
