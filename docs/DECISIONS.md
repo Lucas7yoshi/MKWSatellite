@@ -50,3 +50,17 @@ game data and are not committed.
 category, with names as a fallback. Corrections are only made to **our** interpretation (e.g. a keyword rule that
 misread a label). Oddities in the game's own data (reversed dash panels, a course row with no file, unused objects)
 are shown as stored and noted, because runners need what the game actually has (user's direction).
+
+### D14. Models and textures use our own managed code (2026-11-05)
+User's direction: prefer C# over native libraries. BFRES, BNTX, SARC readers, the block-linear unswizzle and the
+ASTC/BC decoders are written in C# in `MKWSatellite.Formats` (ASTC from the Khronos spec). No Switch Toolbox code was
+copied, so D5's licence question does not block this step. A decompiler for reading Toolbox's DLLs was not used.
+
+### D15. Switch 2 swizzle found by search, then confirmed visually (2026-11-05)
+The Switch 1 GOB layout produced scrambled textures. Rather than guess, every ordering of the GOB's address bits was
+scored on image smoothness; the winner is documented in formats/models.md and covered by a unit test.
+
+### D16. Albedo-only, capped-mip textures in the viewer (2026-11-05)
+The goal is readable geometry for runners, not the game's look: one directional light, albedo, alpha cutout. Textures
+above 1024 px use a smaller stored mip (less VRAM, faster decoding). The 2D overlay draws on top of models (no depth
+test) so paths stay visible inside covered stages.

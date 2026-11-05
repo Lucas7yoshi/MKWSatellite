@@ -20,6 +20,10 @@ public sealed class ViewLayers
     public bool RespawnAreas = true, RecoveryPoints = true, ValleyAreas = true, HighSpeedAreas = true, BoostAreas = true, RuleAreas = true, LinkAreas = false, OtherAreas = false;
     public bool Hazards = true, Fences = false, Audience = false, Scenery = false;
     public bool LayerRace = true, LayerWorld = true, LayerCourseFix = true;
+    /// <summary>Draw 3D models for visible objects; course geometry (<c>Stage_*</c> actors) has its own toggle.</summary>
+    public bool Models = true, StageModels = true;
+    /// <summary>Draw the 2D markers for objects that are shown as models.</summary>
+    public bool MarkersOnModels = true;
     /// <summary>Colour the lap path by height instead of a flat colour.</summary>
     public bool HeightColors = true;
 }
@@ -61,17 +65,28 @@ public sealed class CourseView(PrimitiveBatch batch)
 
     public void Invalidate() => _dirty = true;
 
-    public void Draw(TopDownCamera camera)
+    public void Draw(IViewCamera camera)
     {
         if (Course is null) return;
-        if (_dirty || MathF.Abs(camera.PixelsPerUnit - _builtZoom) > _builtZoom * 0.02f)
+        var zoom = 1 / camera.UnitsPerPixel;
+        if (_dirty || MathF.Abs(zoom - _builtZoom) > _builtZoom * 0.02f)
         {
             Build(camera.UnitsPerPixel);
-            _builtZoom = camera.PixelsPerUnit;
+            _builtZoom = zoom;
             _dirty = false;
         }
         batch.Draw(camera.ViewProjection);
     }
+
+    /// <summary>Course geometry: the actors that carry a course's stage model (e.g. <c>Stage_Cinema_A_00</c>).</summary>
+    public static bool IsStageModel(CourseObject o) => o.Type.StartsWith("Stage_", StringComparison.Ordinal);
+
+    /// <summary>Whether an object's model should be drawn (areas and system objects have none).</summary>
+    public bool ModelVisible(CourseObject o) =>
+        Layers.Models && LayerOn(o.Layer) && !o.IsArea && (IsStageModel(o) ? Layers.StageModels : CategoryOn(o.Category));
+
+    /// <summary>Set by the app: types whose model is currently drawn (their 2D marker can then be hidden).</summary>
+    public Func<CourseObject, bool>? HasModel { get; set; }
 
     private bool LayerOn(CourseLayer l) => l switch
     {
@@ -162,6 +177,11 @@ public sealed class CourseView(PrimitiveBatch batch)
         // 4. Object markers
         foreach (var o in c.Objects.Where(o => !o.IsArea && IsVisible(o)))
         {
+            if (!Layers.MarkersOnModels && ModelVisible(o) && HasModel?.Invoke(o) == true)
+            {
+                _pickables.Add((new PickedObject(o), 6 * upp));
+                continue;
+            }
             var col = Palette.ForCategory(o.Category);
             var p = o.Position;
             var fwd = Vector3.TransformNormal(Vector3.UnitZ, o.Rotation);
@@ -271,8 +291,9 @@ public sealed class CourseView(PrimitiveBatch batch)
 
     // --- picking and labels ---
 
-    public Pickable? PickAt(TopDownCamera camera, Vector2 screen)
+    public Pickable? PickAt(IViewCamera view, Vector2 screen)
     {
+        if (view is not TopDownCamera camera) return PickOnScreen(view, screen);
         var world = camera.ScreenToWorld(screen);
         Pickable? best = null;
         var bestD = float.MaxValue;
@@ -289,7 +310,22 @@ public sealed class CourseView(PrimitiveBatch batch)
         return best;
     }
 
-    public void UpdateHover(TopDownCamera camera, Vector2 mouse, bool mouseInViewport) =>
+    /// <summary>Perspective picking: nearest projected point within 10 px (areas are not pickable in 3D yet).</summary>
+    private Pickable? PickOnScreen(IViewCamera camera, Vector2 screen)
+    {
+        Pickable? best = null;
+        var bestD = 10f;
+        foreach (var (item, _) in _pickables)
+        {
+            if (item is PickedObject { Object.IsArea: true }) continue;
+            if (camera.Project(item.Position) is not { } p) continue;
+            var d = Vector2.Distance(p, screen);
+            if (d < bestD) { best = item; bestD = d; }
+        }
+        return best;
+    }
+
+    public void UpdateHover(IViewCamera camera, Vector2 mouse, bool mouseInViewport) =>
         Hovered = mouseInViewport ? PickAt(camera, mouse) : null;
 
     private static bool PointInQuad(Vector2 p, Vector3[] q)
@@ -304,7 +340,7 @@ public sealed class CourseView(PrimitiveBatch batch)
     }
 
     /// <summary>Checkpoint numbers, drawn with ImGui on top of the GL view.</summary>
-    public void DrawLabels(TopDownCamera camera, ImDrawListPtr dl)
+    public void DrawLabels(IViewCamera camera, ImDrawListPtr dl)
     {
         if (Course is null || !Layers.LapPath || !Layers.CheckpointLabels) return;
         foreach (var lp in Course.LapPoints)
@@ -312,7 +348,8 @@ public sealed class CourseView(PrimitiveBatch batch)
             string? text = lp.IsStart ? "START" : lp.IsGoal ? "GOAL" : lp.CheckPoint is { } cp ? cp.ToString("0") : null;
             if (lp.IsLapCheck) text = (text is null ? "" : text + " ") + "LAP";
             if (text is null) continue;
-            var s = camera.WorldToScreen(lp.Position) + new Vector2(6, -16);
+            if (camera.Project(lp.Position) is not { } screen) continue;
+            var s = screen + new Vector2(6, -16);
             dl.AddText(s + new Vector2(1, 1), 0xFF000000, text);
             dl.AddText(s, 0xFFFFFFFF, text);
         }

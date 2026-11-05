@@ -140,6 +140,56 @@ courseCmd.SetAction(parse =>
 });
 root.Subcommands.Add(courseCmd);
 
+// tex: decode a BNTX texture to PNG (mip 0, first layer)
+var texPath = new Argument<string>("path") { Description = "romfs-relative BNTX, e.g. Tex/Stage_Cinema_A_RoofExterior_Alb.bntx.zs" };
+var texOut = new Argument<string>("out") { Description = "Output PNG path." };
+var texMip = new Option<int>("--mip") { Description = "Mip level to decode.", DefaultValueFactory = _ => 0 };
+var texCmd = new Command("tex", "Decode a BNTX texture to PNG.") { texPath, texOut, texMip };
+texCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    foreach (var t in MKWSatellite.Formats.Textures.Bntx.Parse(fs.Read(parse.GetValue(texPath)!)))
+    {
+        Console.WriteLine($"{t.Name}: {t.Width}x{t.Height} {t.Format} mips {t.MipCount} array {t.ArrayLength} tile {t.TileMode} bh 2^{t.BlockHeightLog2}");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var level = parse.GetValue(texMip);
+        var rgba = t.DecodeMip(level);
+        Console.WriteLine($"  decoded in {sw.ElapsedMilliseconds} ms");
+        if (rgba is null) { Console.Error.WriteLine("  format not supported"); return 2; }
+        MKWSatellite.Formats.Imaging.PngWriter.Write(parse.GetValue(texOut)!, t.MipWidth(level), t.MipHeight(level), rgba);
+        break;
+    }
+    return 0;
+});
+root.Subcommands.Add(texCmd);
+
+// model: resolve an actor type (or take a romfs path) and summarise its BFRES
+var modelArg = new Argument<string>("actor-or-path") { Description = "Actor type (e.g. Stage_Cinema_A_00) or romfs path (Model/....bfres.zs)." };
+var modelCmd = new Command("model", "Summarise the model an actor uses (shapes, materials, textures).") { modelArg };
+modelCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var arg = parse.GetValue(modelArg)!;
+    var path = arg.Contains('/') ? arg : new MKWSatellite.Formats.Models.ActorModelResolver(fs).ModelPath(arg);
+    if (path is null) { Console.Error.WriteLine($"{arg}: no model"); return 1; }
+    Console.WriteLine(path);
+    foreach (var m in MKWSatellite.Formats.Models.Bfres.Parse(fs.Read(path)))
+    {
+        var tris = m.Shapes.Sum(s => s.Indices.Length / 3);
+        var verts = m.Shapes.SelectMany(s => s.Positions).ToList();
+        Console.WriteLine($"{m.Name}: {m.Bones.Count} bones, {m.Shapes.Count} shapes, {m.Materials.Count} materials, {tris} triangles");
+        if (verts.Count > 0) Console.WriteLine($"  bounds {verts.Aggregate(System.Numerics.Vector3.Min)} .. {verts.Aggregate(System.Numerics.Vector3.Max)}");
+        foreach (var s in m.Shapes.Take(12))
+            Console.WriteLine($"  shape {s.Name}: {s.Positions.Length} verts, {s.Indices.Length / 3} tris, skin {s.SkinCount}, uv0 {(s.Uv0 is null ? "no" : "yes")}, material {m.Materials[s.MaterialIndex].Name} albedo {m.Materials[s.MaterialIndex].Albedo ?? "-"}");
+        var missing = m.Materials.Select(x => x.Albedo).OfType<string>().Distinct().Where(t => !fs.Exists($"Tex/{t}.bntx.zs")).ToList();
+        Console.WriteLine($"  albedo textures: {m.Materials.Select(x => x.Albedo).OfType<string>().Distinct().Count()}, missing files: {missing.Count} {string.Join(", ", missing.Take(5))}");
+    }
+    return 0;
+});
+root.Subcommands.Add(modelCmd);
+
 return root.Parse(args).Invoke();
 
 static GameFileSystem? OpenFs(string[]? romfs)

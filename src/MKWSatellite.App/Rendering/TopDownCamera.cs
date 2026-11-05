@@ -6,7 +6,7 @@ namespace MKWSatellite.App.Rendering;
 /// Orthographic camera looking straight down (-Y). World +X is screen right, world +Z is screen down.
 /// <see cref="Center"/> is the world X/Z at the viewport centre; <see cref="PixelsPerUnit"/> is the zoom.
 /// </summary>
-public sealed class TopDownCamera
+public sealed class TopDownCamera : IViewCamera
 {
     public Vector2 Center { get; set; }
     public float PixelsPerUnit { get; set; } = 1f;
@@ -17,6 +17,10 @@ public sealed class TopDownCamera
 
     public float UnitsPerPixel => 1f / PixelsPerUnit;
 
+    /// <summary>World height range mapped to depth (higher = nearer), so models draw correctly from above.</summary>
+    public float DepthMinY { get; set; } = -1000;
+    public float DepthMaxY { get; set; } = 3000;
+
     /// <summary>World-to-clip matrix (row-vector convention for System.Numerics; uploaded untransposed to GLSL column-major).</summary>
     public Matrix4x4 ViewProjection
     {
@@ -24,14 +28,18 @@ public sealed class TopDownCamera
         {
             var halfW = ViewportSize.X / 2 / PixelsPerUnit;
             var halfH = ViewportSize.Y / 2 / PixelsPerUnit;
-            // clip.x = (X - cx) / halfW ; clip.y = -(Z - cz) / halfH (Z grows downwards on screen); depth unused.
+            // clip.x = (X - cx) / halfW ; clip.y = -(Z - cz) / halfH (Z grows downwards on screen);
+            // clip.z = -1 at DepthMaxY (nearest) .. +1 at DepthMinY.
+            var range = MathF.Max(1, DepthMaxY - DepthMinY);
             return new Matrix4x4(
                 1 / halfW, 0, 0, 0,
-                0, 0, 0, 0,
+                0, 0, -2 / range, 0,
                 0, -1 / halfH, 0, 0,
-                -Center.X / halfW, Center.Y / halfH, 0, 1);
+                -Center.X / halfW, Center.Y / halfH, (DepthMaxY + DepthMinY) / range, 1);
         }
     }
+
+    public Vector2? Project(Vector3 world) => WorldToScreen(world);
 
     public Vector2 WorldToScreen(Vector3 w) =>
         ViewportPos + ViewportSize / 2 + (new Vector2(w.X, w.Z) - Center) * PixelsPerUnit;

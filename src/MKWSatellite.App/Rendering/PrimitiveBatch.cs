@@ -108,7 +108,7 @@ public sealed class PrimitiveBatch : IDisposable
         _gl.BindVertexArray(0);
     }
 
-    private static uint CompileProgram(GL gl, string vs, string fs)
+    internal static uint CompileProgram(GL gl, string vs, string fs)
     {
         uint Compile(ShaderType type, string src)
         {

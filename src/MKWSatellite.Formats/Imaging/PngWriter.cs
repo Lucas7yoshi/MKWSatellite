@@ -2,9 +2,9 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 
-namespace MKWSatellite.App;
+namespace MKWSatellite.Formats.Imaging;
 
-/// <summary>Minimal RGBA8 PNG encoder (no dependency): used for viewport screenshots.</summary>
+/// <summary>Minimal RGBA8 PNG encoder (no dependency): viewport screenshots and texture dumps.</summary>
 public static class PngWriter
 {
     private static readonly uint[] CrcTable = BuildCrcTable();

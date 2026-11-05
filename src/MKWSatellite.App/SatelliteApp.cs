@@ -6,6 +6,7 @@ using MKWSatellite.Formats.Byml;
 using MKWSatellite.Formats.Configuration;
 using MKWSatellite.Formats.Course;
 using MKWSatellite.Formats.IO;
+using MKWSatellite.Formats.Imaging;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ImGui;
@@ -14,8 +15,9 @@ using Silk.NET.Windowing;
 namespace MKWSatellite.App;
 
 /// <summary>
-/// Main window: course list and layer toggles on the left, the GL top-down viewport in the middle, the inspector on
-/// the right. Left-drag pans, wheel zooms, click selects, right-drag measures distance.
+/// Main window: course list and layer toggles on the left, the GL viewport in the middle, the inspector on the right.
+/// Top-down: left-drag pans, wheel zooms, click selects, right-drag measures distance.
+/// 3D: left-drag orbits, right/middle-drag pans, wheel zooms, WASD/QE moves, click selects.
 /// </summary>
 public sealed class SatelliteApp : IDisposable
 {
@@ -29,6 +31,12 @@ public sealed class SatelliteApp : IDisposable
     private PrimitiveBatch _batch = null!;
     private CourseView _view = null!;
     private readonly TopDownCamera _camera = new();
+    private readonly OrbitCamera _orbit = new();
+    private bool _use3D, _panning;
+    private ModelLibrary? _models;
+    private IViewCamera ActiveCamera => _use3D ? _orbit : _camera;
+    private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+    private int _idleFrames;
 
     private SatelliteSettings _settings = new();
     private GameFileSystem? _fs;
@@ -56,6 +64,8 @@ public sealed class SatelliteApp : IDisposable
     /// <summary>GL objects must be released while the context still exists (before the window is destroyed).</summary>
     private void ReleaseGl()
     {
+        _models?.Dispose();
+        _models = null;
         _batch?.Dispose();
         _imgui?.Dispose();
         _batch = null!;
@@ -72,6 +82,13 @@ public sealed class SatelliteApp : IDisposable
         _view = new CourseView(_batch);
         foreach (var m in _input.Mice) m.Scroll += OnScroll;
         OpenGame();
+        if (_fs is not null)
+        {
+            _models = new ModelLibrary(_gl, _fs);
+            _view.HasModel = o => _models?.Get(o.Type) is not null;
+        }
+        _use3D = _options.View3D;
+        if (_options.NoModels) _view.Layers.Models = false;
         UpdateViewportRect();
         if (_options.Course is { } c)
         {
@@ -100,33 +117,92 @@ public sealed class SatelliteApp : IDisposable
         _courseFile = file;
         _courseError = null;
         _rulerStart = _rulerEnd = null;
-        try { _view.SetCourse(_loader!.Load(file), _camera); }
+        try
+        {
+            var course = _loader!.Load(file);
+            _view.SetCourse(course, _camera);
+            var ys = course.Objects.Select(o => o.Position.Y).Concat(course.LapPoints.Select(l => l.Position.Y)).ToList();
+            _camera.DepthMinY = (ys.Count > 0 ? ys.Min() : 0) - 1500;
+            _camera.DepthMaxY = (ys.Count > 0 ? ys.Max() : 0) + 1500;
+            FrameOrbit();
+        }
         catch (Exception e) { _courseError = $"{e.GetType().Name}: {e.Message}"; }
+    }
+
+    private void FrameOrbit()
+    {
+        if (_view.Course is not { } c) return;
+        var (min, max) = c.PathBounds;
+        _orbit.Frame(min, max);
+        if (_options.Orbit is { } o)
+        {
+            _orbit.Yaw = o.X * MathF.PI / 180;
+            _orbit.Pitch = o.Y * MathF.PI / 180;
+            if (o.Z > 0) _orbit.Distance = o.Z;
+        }
     }
 
     private void UpdateViewportRect()
     {
         var fb = _window.FramebufferSize;
-        _camera.ViewportPos = new Vector2(LeftPanelWidth, 0);
-        _camera.ViewportSize = new Vector2(MathF.Max(1, fb.X - LeftPanelWidth - RightPanelWidth), MathF.Max(1, fb.Y));
+        foreach (var cam in new IViewCamera[] { _camera, _orbit })
+        {
+            cam.ViewportPos = new Vector2(LeftPanelWidth, 0);
+            cam.ViewportSize = new Vector2(MathF.Max(1, fb.X - LeftPanelWidth - RightPanelWidth), MathF.Max(1, fb.Y));
+        }
     }
 
     private void OnScroll(IMouse mouse, ScrollWheel wheel)
     {
         if (ImGui.GetIO().WantCaptureMouse || !InViewport(mouse.Position)) return;
-        _camera.ZoomAt(mouse.Position, MathF.Pow(1.2f, wheel.Y));
+        if (_use3D) { _orbit.Zoom(MathF.Pow(1.2f, wheel.Y)); _view.Invalidate(); }
+        else _camera.ZoomAt(mouse.Position, MathF.Pow(1.2f, wheel.Y));
+    }
+
+    private void HandleMouse3D(IMouse mouse, Vector2 pos, bool free, float dt)
+    {
+        var delta = pos - _lastMouse;
+        if (mouse.IsButtonPressed(MouseButton.Left))
+        {
+            if (_dragStart is null && free) _dragStart = pos;
+            else if (_dragStart is not null) _orbit.Orbit(delta);
+        }
+        else if (_dragStart is { } start)
+        {
+            if (Vector2.Distance(start, pos) < 3 && free) { _view.Selected = _view.PickAt(_orbit, pos); _view.Invalidate(); }
+            _dragStart = null;
+        }
+        if ((mouse.IsButtonPressed(MouseButton.Right) || mouse.IsButtonPressed(MouseButton.Middle)) && (free || _panning))
+        {
+            if (_panning) _orbit.Pan(delta);
+            _panning = true;
+        }
+        else _panning = false;
+
+        if (_input.Keyboards.Count > 0 && !ImGui.GetIO().WantCaptureKeyboard)
+        {
+            var k = _input.Keyboards[0];
+            var move = new Vector3(
+                (k.IsKeyPressed(Key.D) ? 1 : 0) - (k.IsKeyPressed(Key.A) ? 1 : 0),
+                (k.IsKeyPressed(Key.E) ? 1 : 0) - (k.IsKeyPressed(Key.Q) ? 1 : 0),
+                (k.IsKeyPressed(Key.W) ? 1 : 0) - (k.IsKeyPressed(Key.S) ? 1 : 0));
+            if (move != Vector3.Zero) _orbit.Fly(move * (k.IsKeyPressed(Key.ShiftLeft) ? 3 : 1), dt);
+        }
+        _view.UpdateHover(_orbit, pos, free && _dragStart is null && !_panning);
+        _lastMouse = pos;
     }
 
     private bool InViewport(Vector2 p) =>
         p.X >= _camera.ViewportPos.X && p.Y >= _camera.ViewportPos.Y &&
         p.X < _camera.ViewportPos.X + _camera.ViewportSize.X && p.Y < _camera.ViewportPos.Y + _camera.ViewportSize.Y;
 
-    private void HandleMouse()
+    private void HandleMouse(float dt)
     {
         var mouse = _input.Mice.Count > 0 ? _input.Mice[0] : null;
         if (mouse is null) return;
         var pos = mouse.Position;
         var free = !ImGui.GetIO().WantCaptureMouse && InViewport(pos);
+        if (_use3D) { HandleMouse3D(mouse, pos, free, dt); return; }
 
         if (mouse.IsButtonPressed(MouseButton.Left))
         {
@@ -161,7 +237,8 @@ public sealed class SatelliteApp : IDisposable
     {
         _imgui.Update((float)delta);
         UpdateViewportRect();
-        if (!_options.IsScreenshot) HandleMouse();
+        if (!_options.IsScreenshot) HandleMouse((float)delta);
+        _models?.PumpUploads(_options.IsScreenshot ? 200 : 12);
 
         var fb = _window.FramebufferSize;
         _gl.Viewport(0, 0, (uint)fb.X, (uint)fb.Y);
@@ -170,14 +247,16 @@ public sealed class SatelliteApp : IDisposable
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         // GL viewport covers the area between the side panels (GL's origin is bottom-left).
-        _gl.Viewport((int)_camera.ViewportPos.X, 0, (uint)_camera.ViewportSize.X, (uint)_camera.ViewportSize.Y);
-        _view.Draw(_camera);
+        var cam = ActiveCamera;
+        _gl.Viewport((int)cam.ViewportPos.X, 0, (uint)cam.ViewportSize.X, (uint)cam.ViewportSize.Y);
+        DrawModels(cam);
+        _view.Draw(cam);
         _gl.Viewport(0, 0, (uint)fb.X, (uint)fb.Y);
 
         var dl = ImGui.GetBackgroundDrawList();
-        dl.PushClipRect(_camera.ViewportPos, _camera.ViewportPos + _camera.ViewportSize);
-        _view.DrawLabels(_camera, dl);
-        DrawRuler(dl);
+        dl.PushClipRect(cam.ViewportPos, cam.ViewportPos + cam.ViewportSize);
+        _view.DrawLabels(cam, dl);
+        if (!_use3D) DrawRuler(dl);
         DrawScaleBar(dl);
         dl.PopClipRect();
         DrawHoverTooltip();
@@ -187,7 +266,26 @@ public sealed class SatelliteApp : IDisposable
 
         _imgui.Render();
         _frame++;
-        if (_options.IsScreenshot && _frame == 4) TakeScreenshot();
+        if (_options.IsScreenshot && _frame >= 4)
+        {
+            // Wait for models to finish loading (bounded), then a few settled frames.
+            _idleFrames = (_models?.Pending ?? 0) == 0 ? _idleFrames + 1 : 0;
+            if (_idleFrames >= 3 || _clock.Elapsed.TotalSeconds > 300) TakeScreenshot();
+        }
+    }
+
+    private void DrawModels(IViewCamera cam)
+    {
+        if (_models is null || _view.Course is not { } c || !_view.Layers.Models) return;
+        _models.Begin(cam.ViewProjection, new Vector3(-0.35f, -1f, -0.25f));
+        foreach (var o in c.Objects)
+        {
+            if (!_view.ModelVisible(o) || _models.Get(o.Type) is not { } m) continue;
+            var world = Matrix4x4.CreateScale(o.Actor.Scale) * o.Rotation * Matrix4x4.CreateTranslation(o.Position);
+            var selected = _view.Selected is PickedObject po && ReferenceEquals(po.Object, o);
+            _models.Draw(m, world, selected ? new Vector4(1f, 0.8f, 0.2f, 0.45f) : default);
+        }
+        _models.End();
     }
 
     private void TakeScreenshot()
@@ -227,6 +325,15 @@ public sealed class SatelliteApp : IDisposable
     private void DrawScaleBar(ImDrawListPtr dl)
     {
         if (_view.Course is null) return;
+        if (_use3D)
+        {
+            dl.AddRectFilled(_orbit.ViewportPos, _orbit.ViewportPos + new Vector2(_orbit.ViewportSize.X, 46), 0xC0100C0A);
+            dl.AddText(_orbit.ViewportPos + new Vector2(16, 10), 0xFFFFFFFF,
+                $"{_view.Course.Name}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
+            dl.AddText(_orbit.ViewportPos + new Vector2(16, 28), 0xFFB0B0B0,
+                "3D: left-drag orbit, right-drag pan, wheel zoom, WASD/QE move (Shift = faster)" + ModelStatus());
+            return;
+        }
         // Pick a round length that is ~120 px on screen.
         var target = 120 * _camera.UnitsPerPixel;
         var pow = MathF.Pow(10, MathF.Floor(MathF.Log10(target)));
@@ -240,8 +347,12 @@ public sealed class SatelliteApp : IDisposable
         dl.AddRectFilled(_camera.ViewportPos, _camera.ViewportPos + new Vector2(_camera.ViewportSize.X, 46), 0xC0100C0A);
         dl.AddText(_camera.ViewportPos + new Vector2(16, 10), 0xFFFFFFFF,
             $"{_view.Course.Name}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
-        dl.AddText(_camera.ViewportPos + new Vector2(16, 28), 0xFFB0B0B0, "top-down: +X right, +Z down");
+        dl.AddText(_camera.ViewportPos + new Vector2(16, 28), 0xFFB0B0B0, "top-down: +X right, +Z down" + ModelStatus());
     }
+
+    private string ModelStatus() =>
+        _models is null || !_view.Layers.Models ? "" :
+        $"   models {_models.LoadedModels}, textures {_models.TextureCount}" + (_models.Pending > 0 ? $", loading {_models.Pending}" : "");
 
     private void DrawHoverTooltip()
     {
@@ -286,7 +397,11 @@ public sealed class SatelliteApp : IDisposable
         }
         ImGui.EndChild();
 
-        if (ImGui.Button("Frame course")) _view.FrameCourse(_camera);
+        if (ImGui.RadioButton("Top-down", !_use3D)) { _use3D = false; _view.Invalidate(); }
+        ImGui.SameLine();
+        if (ImGui.RadioButton("3D", _use3D)) { _use3D = true; _view.Invalidate(); }
+        ImGui.SameLine();
+        if (ImGui.Button("Frame course")) { _view.FrameCourse(_camera); FrameOrbit(); _view.Invalidate(); }
         ImGui.Separator();
         DrawLayerToggles();
         ImGui.End();
@@ -333,6 +448,15 @@ public sealed class SatelliteApp : IDisposable
         Toggle("Rule areas (no reverse, no jump...)", ref L.RuleAreas, Palette.ForCategory(ObjectCategory.RuleArea));
         Toggle("Spawn / delete link areas", ref L.LinkAreas, Palette.ForCategory(ObjectCategory.LinkArea));
         Toggle("Other areas", ref L.OtherAreas, Palette.ForCategory(ObjectCategory.OtherArea));
+        ImGui.TextDisabled("Models");
+        Toggle("Show models", ref L.Models);
+        Toggle("Course geometry (Stage models)", ref L.StageModels);
+        Toggle("2D markers on modelled objects", ref L.MarkersOnModels);
+        if (_models is { Errors.Count: > 0 } && ImGui.TreeNode($"Model errors ({_models.Errors.Count})"))
+        {
+            lock (_models.Errors) foreach (var e in _models.Errors.Take(50)) ImGui.TextWrapped(e);
+            ImGui.TreePop();
+        }
         ImGui.TextDisabled("Scene layers");
         Toggle("Race scene", ref L.LayerRace);
         Toggle("World / course static layer", ref L.LayerWorld);
@@ -373,6 +497,7 @@ public sealed class SatelliteApp : IDisposable
                 ImGui.TextColored(Palette.ToVector(Palette.ForCategory(o.Category)), $"{o.Category}  ({o.Layer} layer)");
                 if (CourseObjectClassifier.Gloss(o.Type) is { } gloss) ImGui.TextWrapped(gloss);
                 if (o.Info is { } info) ImGui.TextDisabled($"[{info.Category}] {info.Label}");
+                if (_models?.ModelPathOf(o.Type) is { } modelPath) ImGui.TextDisabled($"model: {modelPath}");
                 foreach (var link in o.IncomingLinks)
                 {
                     var role = (link.Source.Type, link.LinkName) switch
