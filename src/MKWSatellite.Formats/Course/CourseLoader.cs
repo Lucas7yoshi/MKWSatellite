@@ -30,8 +30,11 @@ public sealed partial class CourseLoader(GameFileSystem fs)
     }
 
     /// <summary>Race scene file names (in <c>Banc/</c>), e.g. <c>Race_Cinema_A_00[Game03].bcett.byml.zs</c>.</summary>
+    /// <summary>Race scenes, then the Intermission (<c>InterStage_*</c>) and Rally (<c>LongRally_*</c>) connecting routes.</summary>
     public IReadOnlyList<string> ListRaceScenes() =>
-        fs.ListFiles(BancScene.RomfsDirectory, "Race_*.bcett.byml.zs");
+        [.. fs.ListFiles(BancScene.RomfsDirectory, "Race_*.bcett.byml.zs"),
+         .. fs.ListFiles(BancScene.RomfsDirectory, "InterStage*.bcett.byml.zs"),
+         .. fs.ListFiles(BancScene.RomfsDirectory, "LongRally*.bcett.byml.zs")];
 
     /// <summary>"Race_Cinema_A_00[Game03].bcett.byml.zs" -> "Cinema".</summary>
     public static string CourseNameOf(string raceFile) => CourseNameRegex().Match(raceFile) is { Success: true } m ? m.Groups[1].Value : raceFile;

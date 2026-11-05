@@ -327,6 +327,7 @@ public sealed class SatelliteApp : IDisposable
         var dl = ImGui.GetBackgroundDrawList();
         dl.PushClipRect(cam.ViewportPos, cam.ViewportPos + cam.ViewportSize);
         _view.DrawLabels(cam, dl);
+        _view.DrawHighlights(cam, dl);
         if (!_use3D) DrawRuler(dl);
         DrawScaleBar(dl);
         dl.PopClipRect();
@@ -432,6 +433,7 @@ public sealed class SatelliteApp : IDisposable
     private void DrawHoverTooltip()
     {
         if (_view.Hovered is not { } h || _options.IsScreenshot) return;
+        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
         ImGui.BeginTooltip();
         ImGui.TextUnformatted(Describe(h));
         ImGui.EndTooltip();
@@ -441,9 +443,13 @@ public sealed class SatelliteApp : IDisposable
     {
         PickedObject o => $"{o.Object.Type}\n{o.Object.Category} ({o.Object.Layer})",
         PickedLapPoint l => $"Lap path node {l.Point.Index}" + (l.Point.CheckPoint is { } cp ? $"\nCheckPoint {cp:0}" : ""),
-        PickedRailPoint r => $"{r.Rail.Kind} node {r.Index} ({r.Rail.Layer})",
+        PickedRailPoint r => $"{r.Rail.Kind} node {r.Index} ({r.Rail.Layer})" + BulletNote(r.Rail.Rail.Points[r.Index].Dynamic),
         _ => "",
     };
+
+    private static string BulletNote(BymlDict? d) =>
+        (d?.Get<bool>("IsForbidKillerFinish") == true ? "\nBullet Bill can't end until the next node" : "") +
+        (d?.Get<bool>("IsKillerReleasable") == true ? "\nIsKillerReleasable" : "");
 
     private void DrawLeftPanel()
     {
@@ -521,8 +527,15 @@ public sealed class SatelliteApp : IDisposable
             Legend(Palette.RouteNormal, "default route");
             Legend(Palette.RouteLowPriority, "RoutePriority < 0 (alternative)");
             Legend(Palette.RouteBulletBill, "Bullet Bill only (IsOnlyKillerInItem)");
+            Toggle("Bullet Bill zones", ref L.BulletZones, Palette.BulletNoFinish);
+            if (L.BulletZones)
+            {
+                Legend(Palette.WithAlpha(Palette.BulletNoFinish, 0xFF), "can't end here (IsForbidKillerFinish)");
+                Legend(Palette.BulletReleasable, "IsKillerReleasable point");
+            }
         }
         Toggle("Glide / gravity / guide rails", ref L.OtherRails, Palette.ForRail("GlidePath"));
+        Toggle("Path node dots", ref L.Nodes);
         ImGui.TextDisabled("Objects");
         Toggle("Item boxes", ref L.ItemBoxes, Palette.ForCategory(ObjectCategory.ItemBox));
         Toggle("Coins", ref L.Coins, Palette.ForCategory(ObjectCategory.Coin));

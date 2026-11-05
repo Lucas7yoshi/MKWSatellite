@@ -59,6 +59,11 @@ public static class Palette
     public static readonly uint RoutePreferred = Rgb(60, 230, 255);
     public static readonly uint RouteLowPriority = Rgb(170, 110, 255);
     public static readonly uint RouteBulletBill = Rgb(255, 150, 90);
+    /// <summary>Route stretch after an <c>IsForbidKillerFinish</c> point: a Bullet Bill can't end here.</summary>
+    public static readonly uint BulletNoFinish = Rgb(255, 40, 60, 0x90);
+    /// <summary>Route point with <c>IsKillerReleasable</c>.</summary>
+    public static readonly uint BulletReleasable = Rgb(90, 255, 120);
+    public static readonly uint Hover = Rgb(255, 255, 255, 0xC0);
 
     public static uint ForRoute(BymlDict? d)
     {

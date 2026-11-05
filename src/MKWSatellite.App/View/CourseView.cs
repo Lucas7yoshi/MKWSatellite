@@ -16,6 +16,10 @@ public sealed class ViewLayers
 {
     public bool LapPath = true, CheckpointGates = true, AllGates = false, CheckpointLabels = true;
     public bool AiRoutes = true, OtherRails = true;
+    /// <summary>Bullet Bill route flags: no-finish stretches (<c>IsForbidKillerFinish</c>) and releasable points.</summary>
+    public bool BulletZones = true;
+    /// <summary>A dot on every path node (lap path, AI routes, other rails), to see what can be clicked.</summary>
+    public bool Nodes = true;
     public bool ItemBoxes = true, Coins = true, Boosts = true, StartGrid = true;
     public bool RespawnAreas = true, RecoveryPoints = true, ValleyAreas = true, HighSpeedAreas = true, BoostAreas = true, RuleAreas = true, LinkAreas = false, OtherAreas = false;
     public bool Hazards = true, Fences = false, Audience = false, Scenery = false;
@@ -165,6 +169,20 @@ public sealed class CourseView(PrimitiveBatch batch)
             var px = isLap ? 4f : isRoute ? 2f : 2.5f;
             var routeColor = isRoute ? Palette.ForRoute(r.Rail.Points.Count > 0 ? r.Rail.Points[0].Dynamic : null) : 0;
             var pts = r.Rail.Points;
+            if (isRoute && Layers.BulletZones)
+            {
+                // The game keeps the IsForbidKillerFinish of the last route point the Bullet Bill passed until it
+                // reaches the next one (RouteFollower_Update), so a flagged point covers the stretch after it.
+                for (var i = 0; i < pts.Count; i++)
+                {
+                    if (pts[i].Dynamic?.Get<bool>("IsForbidKillerFinish") != true) continue;
+                    var next = i + 1 < pts.Count ? pts[i + 1] : r.Rail.IsClosed && pts.Count > 2 ? pts[0] : null;
+                    if (next is not null) Line(pts[i].Translation, next.Translation, 10, Palette.BulletNoFinish);
+                    foreach (var dst in pts[i].LinkTargets)
+                        if (c.PointsByHash.TryGetValue(dst, out var q)) Line(pts[i].Translation, q.Translation, 10, Palette.BulletNoFinish);
+                    if (next is null && pts[i].LinkTargets.Count == 0) Dot(pts[i].Translation, 6, Palette.BulletNoFinish);
+                }
+            }
             void Seg(Vector3 a, Vector3 b)
             {
                 var col = isLap ? (Layers.HeightColors ? Palette.Height((a.Y + b.Y) / 2, _minY, _maxY) : Palette.ForRail(r.Kind))
@@ -179,7 +197,14 @@ public sealed class CourseView(PrimitiveBatch batch)
                     if (c.PointsByHash.TryGetValue(dst, out var q))
                         Seg(p.Translation, q.Translation);
             if (!isLap)
-                for (var i = 0; i < pts.Count; i++) _pickables.Add((new PickedRailPoint(r, i), 4));
+                for (var i = 0; i < pts.Count; i++)
+                {
+                    _pickables.Add((new PickedRailPoint(r, i), 4));
+                    if (isRoute && Layers.BulletZones && pts[i].Dynamic?.Get<bool>("IsKillerReleasable") == true)
+                        Dot(pts[i].Translation, 4.5f, Palette.BulletReleasable);
+                    else if (Layers.Nodes)
+                        Dot(pts[i].Translation, 2.5f, isRoute ? routeColor : Palette.ForRail(r.Kind));
+                }
         }
 
         // 3. Lap gates: a line between the bottom corners top-down, the full upright rectangle in 3D.
@@ -188,6 +213,8 @@ public sealed class CourseView(PrimitiveBatch batch)
             {
                 var isCp = lp.CheckPoint is not null || lp.IsStart || lp.IsGoal || lp.IsLapCheck;
                 _pickables.Add((new PickedLapPoint(lp), 6));
+                if (Layers.Nodes)
+                    Dot(lp.Position, 3f, Layers.HeightColors ? Palette.Height(lp.Position.Y, _minY, _maxY) : Palette.ForRail("LapPathGraph"));
                 if (isCp ? !Layers.CheckpointGates : !Layers.AllGates) continue;
                 var g = lp.GateCorners();
                 var col = lp.IsStart || lp.IsGoal ? Palette.StartGate : lp.IsLapCheck ? Palette.LapCheckGate : isCp ? Palette.CheckpointGate : Palette.Gate;
@@ -247,7 +274,6 @@ public sealed class CourseView(PrimitiveBatch batch)
 
         // 5. Selection highlight
         if (Selected is PickedObject { Object.IsArea: true } sa && is3D) AreaBox(sa.Object, Palette.Selection, highlight: true);
-        else if (Selected is not null) RingMarker(Selected.Position, 9 * Upp(Selected.Position), 2, Palette.Selection);
 
         batch.Upload();
     }
@@ -370,6 +396,37 @@ public sealed class CourseView(PrimitiveBatch batch)
         Line(mid + dir * len / 2, mid - dir * len / 2 - side * len * 0.6f, 2f, color);
     }
 
+    /// <summary>
+    /// A round dot of <paramref name="px"/> screen pixels radius with a dark outline: facing the camera in 3D, flat
+    /// in X/Z top-down.
+    /// </summary>
+    private void Dot(Vector3 c, float px, uint color)
+    {
+        var u = Upp(c);
+        Vector3 right = Vector3.UnitX, up = Vector3.UnitZ;
+        if (_orbit is { } o)
+        {
+            var f = c - o.Eye;
+            if (f.LengthSquared() < 1e-8f) return;
+            f = Vector3.Normalize(f);
+            right = Vector3.Cross(f, Vector3.UnitY);
+            right = right.LengthSquared() < 1e-8f ? Vector3.UnitX : Vector3.Normalize(right);
+            up = Vector3.Cross(right, f);
+        }
+        void Fill(float r, uint col)
+        {
+            const int n = 10;
+            for (var i = 0; i < n; i++)
+            {
+                var a0 = i * MathF.Tau / n;
+                var a1 = (i + 1) * MathF.Tau / n;
+                batch.Triangle(c, c + (right * MathF.Cos(a0) + up * MathF.Sin(a0)) * r, c + (right * MathF.Cos(a1) + up * MathF.Sin(a1)) * r, col);
+            }
+        }
+        Fill((px + 1.2f) * u, Palette.WithAlpha(0xFF000000, (byte)Math.Min(0xC0, color >> 24)));
+        Fill(px * u, color);
+    }
+
     private void Disc(Vector3 c, float r, uint color, int segments)
     {
         for (var i = 0; i < segments; i++)
@@ -416,7 +473,7 @@ public sealed class CourseView(PrimitiveBatch batch)
         var world = camera.ScreenToWorld(screen);
         Pickable? best = null;
         var bestD = float.MaxValue;
-        var limit = 8 * camera.UnitsPerPixel;
+        var limit = PickRadiusPx * camera.UnitsPerPixel;
         foreach (var (item, radiusPx) in _pickables)
         {
             float d;
@@ -429,11 +486,14 @@ public sealed class CourseView(PrimitiveBatch batch)
         return best;
     }
 
-    /// <summary>3D picking: the nearest projected point within 10 px wins; otherwise the nearest area box under the cursor.</summary>
+    /// <summary>How close (screen pixels) the cursor must be to a point to pick it; follows the line/marker size.</summary>
+    private float PickRadiusPx => 14f * MathF.Max(1f, Layers.LineScale);
+
+    /// <summary>3D picking: the nearest projected point within the pick radius wins; otherwise the nearest area box under the cursor.</summary>
     private Pickable? PickOnScreen(OrbitCamera camera, Vector2 screen)
     {
         Pickable? best = null;
-        var bestD = 10f;
+        var bestD = PickRadiusPx;
         foreach (var (item, _) in _pickables)
         {
             if (item is PickedObject { Object.IsArea: true }) continue;
@@ -465,6 +525,23 @@ public sealed class CourseView(PrimitiveBatch batch)
             if (zi > p.Y != zj > p.Y && p.X < (xj - xi) * (p.Y - zi) / (zj - zi) + xi) inside = !inside;
         }
         return inside;
+    }
+
+    /// <summary>Screen-space rings for the hovered and selected points, drawn with ImGui on top of the GL view.</summary>
+    public void DrawHighlights(IViewCamera camera, ImDrawListPtr dl)
+    {
+        var r = 9f * MathF.Max(1f, Layers.LineScale);
+        if (Hovered is { } h && h != Selected && h is not PickedObject { Object.IsArea: true } && camera.Project(h.Position) is { } hp)
+        {
+            dl.AddCircle(hp, r, 0xA0000000, 24, 4);
+            dl.AddCircle(hp, r, Palette.Hover, 24, 2);
+        }
+        if (Selected is { } s && s is not PickedObject { Object.IsArea: true } && camera.Project(s.Position) is { } sp)
+        {
+            dl.AddCircle(sp, r * 1.3f, 0xC0000000, 24, 5);
+            dl.AddCircle(sp, r * 1.3f, Palette.Selection, 24, 2.5f);
+            dl.AddCircleFilled(sp, 2.5f * MathF.Max(1f, Layers.LineScale), Palette.Selection);
+        }
     }
 
     /// <summary>Checkpoint numbers, drawn with ImGui on top of the GL view.</summary>

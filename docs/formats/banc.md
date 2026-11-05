@@ -72,6 +72,24 @@ meanings taken from the key names only (not traced in code): `RoutePriority` (-2
 such as DK Pass's shortcut between checkpoints 4 and 5), `IsOnlyKillerInItem` (Bullet Bill only), `IsIgnoreItem`,
 `IsIgnoreEnemy`, `IsAssistAvailable`, `FastType`, `TrickType`, `ItemGroup`, `RecoverType`.
 
+### Bullet Bill ("Killer") point flags (traced in 1.8)
+Every route point's `Dynamic` is read by one parser (1.8: `0x7100AD4600`, keys looked up by MurmurHash3). The booleans
+become a bit field on the point: `IsKillerReleasable` 0x800, `IsForbidKillerFinish` 0x1000, `IsOnlyKillerInItem`
+0x10000, `IsReversePenaltyInPathOnKiller` 0x40000, `IsKillerNarrowing` 0x80000; `KillerWallTurn` is an int.
+
+The route follower (1.8: `0x71006C24D0`) copies the releasable and forbid-finish bits of each point when it reaches it
+and keeps them until the next point. When a Bullet Bill would end:
+- after about 840 frames (14 s) it ends anyway, before the flags are looked at;
+- if the last point passed has `IsForbidKillerFinish`, it keeps going, so **a flagged point protects the stretch up to
+  the next point**;
+- if it has `IsKillerReleasable`, it only ends in one particular follower state;
+- otherwise it also refuses while turning hard (a turn value above 0.45) and runs a look-ahead over the upcoming
+  route (constants 30, 50, 2), which is not decoded yet.
+
+So tight spirals can be protected without any data flag, by the turn and look-ahead checks. Example: Airship Fortress
+race's descending spiral has only two flagged points (route rail 1 nodes 71-72 at the top) and six near the bottom.
+Interstage and Rally routes carry far more flags (e.g. `LongRally_BigTreeToAirshipFortress`: 677).
+
 ## Area shapes
 An area's actor gyml has `BancDummyShape` (`Cube_c` 33 types, `Cube_t` 14, `Cube` 9, `Sphere` 4, `Cylinder` 3,
 `Cylinder_c` 2). Rescue/valley/high-speed/dash areas are `Cube_t`; across all race scenes the lap and route points inside
