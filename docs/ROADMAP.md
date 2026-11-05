@@ -57,3 +57,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | `mkwsat dump <path> --yaml`: whole BYML as plain YAML. |
 | 2026-11-05 | Non-checkpoint lap gates drawn orange and thicker (were faint grey). |
 | 2026-11-05 | Picking: overlapping areas ordered smallest first (top-down) / nearest then smallest (3D); clicking again at the same spot cycles through everything under the cursor; tooltip lists them. |
+| 2026-11-05 | Lakitu/OOB traced (out-of-bounds.md): PlayerRescue event flow, 6 triggers, respawn-point selection, per-course OOB census. Kart's own water/fall check still open. |
