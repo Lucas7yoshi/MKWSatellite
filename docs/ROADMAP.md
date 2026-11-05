@@ -53,3 +53,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | Collision layer: highlight one volume material (default Rescue: x-ray, light edges), volume opacity slider, volumes keep material colour in surface mode. |
 | 2026-11-05 | Rescue/Valley collision boxes = RescueArea/ValleyArea actors baked into the race compound (all matched on 4 courses); `Rescue` surfaces on ground geometry are a separate case (collision.md). |
 | 2026-11-05 | PNG writer: RGB when opaque, per-row adaptive filters, zlib SmallestSize (4K screenshot 16.7 → 10.7 MB, lossless). |
+| 2026-11-05 | Camera framing (top-down and 3D) includes every lap gate, so progress zones aren't cropped. |

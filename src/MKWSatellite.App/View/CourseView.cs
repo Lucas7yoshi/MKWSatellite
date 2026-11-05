@@ -114,8 +114,17 @@ public sealed class CourseView(PrimitiveBatch batch)
     public void FrameCourse(TopDownCamera camera)
     {
         if (Course is null) return;
-        var (min, max) = Course.PathBounds;
+        var (min, max) = FrameBounds(Course);
         camera.Frame(new Vector2(min.X, min.Z), new Vector2(max.X, max.Z));
+    }
+
+    /// <summary>Path bounds grown to include every lap gate (gates and progress zones reach past the path nodes).</summary>
+    public static (Vector3 Min, Vector3 Max) FrameBounds(CourseScene course)
+    {
+        var (min, max) = course.PathBounds;
+        foreach (var lp in course.LapPoints)
+            foreach (var c in lp.GateCorners()) { min = Vector3.Min(min, c); max = Vector3.Max(max, c); }
+        return (min, max);
     }
 
     public void Invalidate() => _dirty = true;

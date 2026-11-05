@@ -240,7 +240,7 @@ public sealed partial class SatelliteApp : IDisposable
     private void FrameOrbit()
     {
         if (_view.Course is not { } c) return;
-        var (min, max) = c.PathBounds;
+        var (min, max) = CourseView.FrameBounds(c);
         _orbit.Frame(min, max);
         if (_options.Orbit is { } o)
         {
