@@ -38,7 +38,7 @@ Short version for runners:
 
 | # | Trigger | Condition | Delay | Where | Status |
 |---|---|---|---|---|---|
-| 0 | **Outside every lap progress zone** | The lap tracker finds no progress zone (segment between two lap gates, within the interpolated width and height) containing you. See "Lap-out" below. | Requested as soon as the flag is set and the tracker's cooldown counter is at 0; exact delay **unverified** (see below) | `LapProgress_Update` `0x71005BD550` sets the flag (`0x71005BF300`); `Rescue_LapOutUpdate` `0x71005BBAC0` sends `0xC7A2B1BD` (`0x71005BC4FC`, also `Rescue_SendLapOut` `0x71023B4A50`) | Confirmed in code; the delay before Lakitu is **unverified** |
+| 0 | **Outside every lap progress zone** | The lap tracker finds no progress zone (segment between two lap gates, within the interpolated width and height) containing you. See "Lap-out" below. | None in retail (first frame outside); a 400-frame grace path exists but looks debug-only (see below) | `LapProgress_Update` `0x71005BD550` sets the flag (`0x71005BF300`); `Rescue_LapOutUpdate` `0x71005BBAC0` sends `0xC7A2B1BD` (`0x71005BC4FC`, also `Rescue_SendLapOut` `0x71023B4A50`) | Confirmed in code; that the grace path is off in retail is **unverified** |
 | 1 | **Rescue / Valley material** | Contact with static course collision whose material is Valley (14) or Rescue (15): the code tests `(material & ~1) == 14`. | None: immediate | `sub_710217BFF0` (`0x710217C15C`), `sub_7102186590` (`0x71021867C0`), also `0x710218137C`, `0x710218BBEC`; sends via `Rescue_SendPlayerRescue` `0x71021A0030` | Confirmed for physics objects in that cluster (carried/ridden objects). That this exact code is the **kart's** own check is **unverified**. |
 | 2 | **WorldEndArea** (`SystemObj_WorldEndArea_00`) | Player within 2.0 of the area's shape (bounding box + 2.0 margin first). | Immediate, once per entry. A second path waits 59 frames and has a 5000-frame cooldown (not fully decoded). | `Rescue_WorldEndAreaUpdate` `0x7100530000` (`0x7100530480`, `0x7100530640`, send at `0x7100530670`) | Confirmed |
 | 3 | **Going backwards** (`game__GameParam_ForbidReverse` area) | Inside the area, (best progress − current progress) × course scale > the area's `ThresholdDistance`. | Immediate once over the threshold | `Rescue_ForbidReverseUpdate` `0x7102274840` | Confirmed (the actor that carries this param was not identified) |
@@ -63,9 +63,27 @@ respawn without touching any Rescue/Valley volume).
 4. The race sequence (`sub_71009A4E10`, `0x71009A51B0`) handles `0xC7A2B1BD` like `PlayerRescue`: same state checks,
    then the recover-pose functions (player vtable +0x118 / +0x120), then Lakitu.
 
-**Unverified:** what loads the +108 countdown (a grace period would explain why a short trip outside the shell does
-not always respawn you), and a branch before the send that looks up the nearest road point and may delay it. Testing
-idea: leave the shell at a known spot, time it from the frame you cross the outline in the viewer.
+**The timer (traced).** `Rescue_LapOutUpdate` and its copy `sub_71005BA9A0` run a small state machine in the
+per-player object (+104 = state, +108 = countdown):
+
+| State (+104) | Meaning | Per frame |
+|---|---|---|
+| 0 | idle | If the lap-out flag is set and +108 ≤ 0: send `0xC7A2B1BD` and go to 1 (**no delay**), unless the grace path below applies. +108 counts down to 0. |
+| 1 | rescue requested | nothing; reset to 0 when the respawn finishes (`sub_71023B4630`) |
+| −1 … −30 | waiting up to 30 frames for a lookup result | when the result is in: value at +116 ≥ 50 → state 400, else send now; after 30 frames → send |
+| 400 … 2 | **grace countdown (400 frames = 6.7 s)** | back inside a zone → cancel (state 0); behind the current lap gate (`sub_71023B4900`) → send now; every 5 frames a probe query at your position, failure → send now; reaching 1 → send |
+
+- The grace path is only taken when the global byte `0x71037B2000` is 1 **and** the race mode passes
+  `sub_71002D1930` / `sub_71024052E0` **and** you are not behind the current gate. No code writes that byte (only these
+  three functions read it), so it looks like a debug or test switch, and in retail the rescue is requested on the
+  **first frame** you are outside every zone (**unverified** that the byte is never set).
+- +108 is only set to 1 while the race is paused or frozen (global flags +1272 / +1273), so it suppresses the check
+  for those frames; no other writer was found.
+- The event handler (`0x71009A51B0`) applies no delay either: it computes the recover pose and stores it in the race
+  sequence straight away. What's left is the Lakitu fade itself.
+- So the ~6.5 s in the Desert Hills test is most likely the time until the kart actually left the last zone, not a
+  timer (zones are wide, and the side mode can widen one side). Check: find where the run crossed the blue outline in
+  the viewer.
 
 The stuck watchdog (trigger 4) is also tied to progress: its "no progress for 180 frames" test reads a lap progress
 value, so staying outside the shell (progress frozen) would also count toward its 12 s. That it is the same tracker
@@ -127,7 +145,8 @@ The viewer's Collision layer highlights Rescue (default) or Valley volumes; the 
   at `0x7100326E1C`), and race-seq fields +224 / +472.
 - Whether touching Rescue material on ordinary ground respawns instantly for the kart (trigger 1 is confirmed only for
   carried objects).
-- The delay between leaving the progress shell and Lakitu (see "Lap-out").
+- Whether the lap-out grace switch (`0x71037B2000`) is ever set in retail, and what the probe query in the grace
+  path tests.
 - Unknown event hashes in rescue paths: `0xC7A2B1BD` (lap-out rescue; name unknown), `0xD2FE0B42` (distance compared to a threshold before rescuing),
   `0x48740F93`, `0xB0BCE3F5`.
 - `IsRecoverEnabled` (`sub_7100E59FB0`) and `EnableStartInForceEndRecover` (`sub_71008EEEB0`) not looked at.
