@@ -57,6 +57,12 @@ rail's `IsClosed`.
   edge = offset" fails nodes 29-34 (offset 0) in the covered section, whose ceiling is 11-19 units up. Offset / 2
   gives every gate a bottom 1.5-5 units below the road and fits under that ceiling; it also matches gates widened to
   one side, whose offset equals the growth (nodes 55-60: size 30 + d, offset d).
+- **Sideways (X) sign, checked over all race scenes:** `mkwsat gateturn` finds the offset points to the inside of the
+  lap path's bend for 720 gates and to the outside for 372 (178 near-straight skipped), consistent with gates widened
+  to catch corner cuts. `mkwsat gatefit` counts wall hits across offset gates: on SFC Mario Circuit G, 14 with the
+  current sign vs 74 flipped. Neither test separates "centre at offset / 2" from "no X shift" or "centre at offset";
+  that rests on the Y evidence above. Example: SFC Mario Circuit G checkpoint 2 (size 58, offset 38.3, Rotate 0)
+  spans from the road's left edge across the inside sand to the infield, i.e. it covers the corner cut.
 - Lap nodes are not all on the ground: on Airship Fortress race nodes 38-40 rise from 742 to 778 over the launch onto
   the airship, so those gates hang in the air on the flight path.
 - `Dynamic` keys seen across the 57 race scenes: `CheckPoint` (float, 585 nodes), `IsStart` (57, one per scene),

@@ -329,6 +329,151 @@ fitCmd.SetAction(parse =>
 });
 root.Subcommands.Add(fitCmd);
 
+// gatefit: which sign of RectOffset.X keeps lap gates off walls (surfaces well above the node) in the course model
+var gfCourses = new Argument<string[]>("courses") { Description = "Race scene name filters.", Arity = ArgumentArity.OneOrMore };
+var gfCmd = new Command("gatefit", "Compare lap gate placements (offset sign / centring) against walls in the course model.") { gfCourses };
+gfCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var loader = new CourseLoader(fs);
+    var resolver = new MKWSatellite.Formats.Models.ActorModelResolver(fs);
+    var variants = new (string Name, float Centre)[] { ("+off/2", 0.5f), ("-off/2", -0.5f), ("none", 0f), ("+off", 1f), ("-off", -1f) };
+    var totals = new int[variants.Length];
+    var totalGates = 0;
+    foreach (var filter in parse.GetValue(gfCourses)!)
+    {
+        var file = loader.ListRaceScenes().FirstOrDefault(f => f.Contains(filter, StringComparison.OrdinalIgnoreCase));
+        if (file is null) { Console.Error.WriteLine($"{filter}: no such course"); continue; }
+        var course = loader.Load(file);
+        // XZ grid of triangles from the stage models.
+        const float cell = 8f;
+        var grid = new Dictionary<(int, int), List<(System.Numerics.Vector3 A, System.Numerics.Vector3 B, System.Numerics.Vector3 C)>>();
+        foreach (var o in course.Objects.Where(o => o.Type.StartsWith("Stage_", StringComparison.Ordinal)))
+        {
+            if (resolver.ModelPath(o.Type) is not { } path) continue;
+            var world = System.Numerics.Matrix4x4.CreateScale(o.Actor.Scale) * o.Rotation * System.Numerics.Matrix4x4.CreateTranslation(o.Position);
+            foreach (var m in MKWSatellite.Formats.Models.Bfres.Parse(fs.Read(path)))
+                foreach (var sh in m.Shapes)
+                    for (var i = 0; i + 2 < sh.Indices.Length; i += 3)
+                    {
+                        var a = System.Numerics.Vector3.Transform(sh.Positions[sh.Indices[i]], world);
+                        var b = System.Numerics.Vector3.Transform(sh.Positions[sh.Indices[i + 1]], world);
+                        var c = System.Numerics.Vector3.Transform(sh.Positions[sh.Indices[i + 2]], world);
+                        int x0 = (int)MathF.Floor(MathF.Min(a.X, MathF.Min(b.X, c.X)) / cell), x1 = (int)MathF.Floor(MathF.Max(a.X, MathF.Max(b.X, c.X)) / cell);
+                        int z0 = (int)MathF.Floor(MathF.Min(a.Z, MathF.Min(b.Z, c.Z)) / cell), z1 = (int)MathF.Floor(MathF.Max(a.Z, MathF.Max(b.Z, c.Z)) / cell);
+                        if ((x1 - x0) * (z1 - z0) > 400) continue;
+                        for (var gx = x0; gx <= x1; gx++)
+                            for (var gz = z0; gz <= z1; gz++)
+                            {
+                                if (!grid.TryGetValue((gx, gz), out var l)) grid[(gx, gz)] = l = [];
+                                l.Add((a, b, c));
+                            }
+                    }
+        }
+        // Is there a surface between y+lo and y+hi at (x, z)?
+        bool Wall(System.Numerics.Vector3 p, float lo, float hi)
+        {
+            if (!grid.TryGetValue(((int)MathF.Floor(p.X / cell), (int)MathF.Floor(p.Z / cell)), out var l)) return false;
+            foreach (var (a, b, c) in l)
+            {
+                var d = (b.Z - c.Z) * (a.X - c.X) + (c.X - b.X) * (a.Z - c.Z);
+                if (MathF.Abs(d) < 1e-9f) continue;
+                var l1 = ((b.Z - c.Z) * (p.X - c.X) + (c.X - b.X) * (p.Z - c.Z)) / d;
+                var l2 = ((c.Z - a.Z) * (p.X - c.X) + (a.X - c.X) * (p.Z - c.Z)) / d;
+                var l3 = 1 - l1 - l2;
+                if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+                var h = l1 * a.Y + l2 * b.Y + l3 * c.Y - p.Y;
+                if (h > lo && h < hi) return true;
+            }
+            return false;
+        }
+        var counts = new int[variants.Length];
+        var aiIn = new int[variants.Length];
+        var aiTotal = 0;
+        var routePts = course.Rails.Where(r => r.Kind == "RoutePathGraph").SelectMany(r => r.Rail.Points).Select(q => q.Translation).ToList();
+        var gates = 0;
+        foreach (var lp in course.LapPoints)
+        {
+            if (MathF.Abs(lp.RectOffset.X) < 2f) continue; // only gates with a sideways offset tell the variants apart
+            gates++;
+            var rot = MKWSatellite.Formats.Course.CourseMath.EulerXyz(lp.Point.Rotate);
+            var right = System.Numerics.Vector3.TransformNormal(System.Numerics.Vector3.UnitX, rot);
+            right.Y = 0;
+            if (right.LengthSquared() < 1e-6f) continue;
+            right = System.Numerics.Vector3.Normalize(right);
+            var fwd = System.Numerics.Vector3.Cross(right, System.Numerics.Vector3.UnitY);
+            var near = routePts.Select(q => q - lp.Position).Where(q => MathF.Abs(System.Numerics.Vector3.Dot(q, fwd)) < 6 && MathF.Abs(q.Y) < 10 && MathF.Abs(System.Numerics.Vector3.Dot(q, right)) < lp.RectSize.X + MathF.Abs(lp.RectOffset.X)).Select(q => System.Numerics.Vector3.Dot(q, right)).ToList();
+            aiTotal += near.Count;
+            for (var v = 0; v < variants.Length; v++)
+            {
+                var c0 = variants[v].Centre * lp.RectOffset.X;
+                aiIn[v] += near.Count(x => x >= c0 - lp.RectSize.X / 2 && x <= c0 + lp.RectSize.X / 2);
+            }
+            for (var v = 0; v < variants.Length; v++)
+            {
+                var c = variants[v].Centre * lp.RectOffset.X;
+                var hits = 0;
+                for (var k = 0; k <= 20; k++)
+                {
+                    var x = c - lp.RectSize.X / 2 + lp.RectSize.X * k / 20f;
+                    if (Wall(lp.Position + right * x, 1.5f, 8f)) hits++;
+                }
+                counts[v] += hits;
+                if (Environment.GetEnvironmentVariable("GATEFIT_VERBOSE") == "1" && v == 0)
+                    Console.Write($"  node {lp.Index,3} cp {lp.CheckPoint?.ToString() ?? "-",3} size {lp.RectSize.X,5:0.#} off {lp.RectOffset.X,6:0.##} rot {lp.Point.Rotate * (180 / MathF.PI)} ");
+                if (Environment.GetEnvironmentVariable("GATEFIT_VERBOSE") == "1")
+                    Console.Write($"{variants[v].Name}:{hits} " + (v == variants.Length - 1 ? Environment.NewLine : ""));
+            }
+        }
+        Console.WriteLine($"{file,-44} gates {gates,3}  walls: " + string.Join("  ", variants.Select((v, i) => $"{v.Name} {counts[i],4}")));
+        Console.WriteLine($"{"",-44} AI pts {aiTotal,3} inside: " + string.Join("  ", variants.Select((v, i) => $"{v.Name} {aiIn[i],4}")));
+        for (var v = 0; v < variants.Length; v++) totals[v] += counts[v];
+        totalGates += gates;
+    }
+    Console.WriteLine($"{"TOTAL",-44} gates {totalGates,3}  " + string.Join("  ", variants.Select((v, i) => $"{v.Name} {totals[i],4}")));
+    return 0;
+});
+root.Subcommands.Add(gfCmd);
+
+// gateturn: is a gate's sideways offset towards the inside of the turn at its node?
+var gtCmd = new Command("gateturn", "Correlate lap gate RectOffset.X sign with the turn direction of the lap path, over all race scenes.");
+gtCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var loader = new CourseLoader(fs);
+    int inside = 0, outside = 0, straight = 0;
+    foreach (var file in loader.ListRaceScenes().Where(f => f.StartsWith("Race_", StringComparison.Ordinal)))
+    {
+        CourseScene course;
+        try { course = loader.Load(file); } catch { continue; }
+        foreach (var rail in course.LapPoints.GroupBy(l => l.Rail))
+        {
+            var pts = rail.ToList();
+            for (var i = 1; i + 1 < pts.Count; i++)
+            {
+                var lp = pts[i];
+                if (MathF.Abs(lp.RectOffset.X) < 3f) continue;
+                var a = pts[i].Position - pts[i - 1].Position; a.Y = 0;
+                var b = pts[i + 1].Position - pts[i].Position; b.Y = 0;
+                if (a.LengthSquared() < 1 || b.LengthSquared() < 1) continue;
+                a = System.Numerics.Vector3.Normalize(a); b = System.Numerics.Vector3.Normalize(b);
+                var turn = a.X * b.Z - a.Z * b.X; // >0: turning one way
+                if (MathF.Abs(turn) < 0.05f) { straight++; continue; }
+                var right = System.Numerics.Vector3.TransformNormal(System.Numerics.Vector3.UnitX, MKWSatellite.Formats.Course.CourseMath.EulerXyz(lp.Point.Rotate));
+                // Side of the turn centre relative to the node: direction b - a points to the inside of the bend.
+                var inward = b - a;
+                var side = System.Numerics.Vector3.Dot(inward, right) * lp.RectOffset.X;
+                if (side > 0) inside++; else outside++;
+            }
+        }
+    }
+    Console.WriteLine($"offset towards inside of turn: {inside}, towards outside: {outside}, near-straight skipped: {straight}");
+    return 0;
+});
+root.Subcommands.Add(gtCmd);
+
 return root.Parse(args).Invoke();
 
 static GameFileSystem? OpenFs(string[]? romfs)
