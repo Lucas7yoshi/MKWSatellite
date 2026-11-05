@@ -76,6 +76,24 @@ public sealed class ActorModelResolver
         return AreaShape.FromDummy(dummy);
     });
 
+    /// <summary>
+    /// An actor's collision meshes: <c>Components.PhysicsRef</c> → ControllerSet → each <c>ShapeNamePathAry</c> entry's
+    /// ShapeParam → <c>PhshMesh[].PhshMeshPath</c> (<c>Work/Phive/Shape/Dcc/*.phsh</c>).
+    /// </summary>
+    public IReadOnlyList<string> CollisionMeshPaths(string actorType)
+    {
+        var list = new List<string>();
+        if (_actors.Value is not { } actors || _physics.Value is not { } physics || _phive.Value is not { } phive) return list;
+        if (Lookup(actors, $"Work/Gyml/ActorGParam/{actorType}.gear__ActorGParam.gyml", d => d.Dict("Components")?.Get<string>("PhysicsRef")) is not { } physRef
+            || Lookup(physics, physRef, d => d.Get<string>("ControllerSetResourcePath")) is not { } controllerSet
+            || Lookup(phive, controllerSet, d => d.Array("ShapeNamePathAry")) is not { } shapes)
+            return list;
+        foreach (var s in shapes.OfType<BymlDict>())
+            if (s.Get<string>("FilePath") is { } shapePath && Lookup(phive, shapePath, d => d.Array("PhshMesh")) is { } meshes)
+                list.AddRange(meshes.OfType<BymlDict>().Select(m => m.Get<string>("PhshMeshPath")).OfType<string>());
+        return list;
+    }
+
     private static Vector3 Vec(BymlDict? d) =>
         d is null ? Vector3.Zero : new Vector3(Convert.ToSingle(d.GetValueOrDefault("X") ?? 0f), Convert.ToSingle(d.GetValueOrDefault("Y") ?? 0f), Convert.ToSingle(d.GetValueOrDefault("Z") ?? 0f));
 

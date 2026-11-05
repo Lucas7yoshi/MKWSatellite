@@ -142,7 +142,7 @@ courseCmd.SetAction(parse =>
         foreach (var g in c.Objects.GroupBy(o => (o.Layer, o.Category, o.Type)).OrderBy(g => g.Key.Layer).ThenBy(g => g.Key.Type))
             Console.WriteLine($"  type {g.Key.Layer,-9} {g.Key.Category,-14} {g.Key.Type} x{g.Count()}");
     foreach (var o in c.Objects.Where(o => o.Type.StartsWith("Stage_", StringComparison.Ordinal)))
-        Console.WriteLine($"  {o.Layer,-9} stage model {o.Type} at {o.Position}");
+        Console.WriteLine($"  {o.Layer,-9} stage model {o.Type} at {o.Position} rot {o.Actor.Rotate} scale {o.Actor.Scale}");
     foreach (var g in c.Rails.GroupBy(r => (r.Layer, r.Kind)).OrderBy(g => g.Key.Layer))
         Console.WriteLine($"  {g.Key.Layer,-9} rail {g.Key.Kind,-18} {g.Count(),4} rails, {g.Sum(r => r.Rail.Points.Count)} points");
 
@@ -532,6 +532,83 @@ terCmd.SetAction(parse =>
     return 0;
 });
 root.Subcommands.Add(terCmd);
+
+// collision: read a course's Phive collision; list sources, materials, and how the lap path sits on it
+var colCourse = new Argument<string>("course") { Description = "Race scene name filter." };
+var colObj = new Option<string?>("--obj") { Description = "Write the collision mesh as OBJ (one group per material)." };
+var colCmd = new Command("collision", "Read a course's collision (Phive); list sources and materials, lap path height over it.") { colCourse, colObj };
+colCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var loader = new CourseLoader(fs);
+    var file = loader.ListRaceScenes().FirstOrDefault(f => f.Contains(parse.GetValue(colCourse)!, StringComparison.OrdinalIgnoreCase));
+    if (file is null) { Console.Error.WriteLine("no such course"); return 1; }
+    var course = loader.Load(file);
+    var resolver = new MKWSatellite.Formats.Models.ActorModelResolver(fs);
+    var sources = MKWSatellite.Formats.Phive.CourseCollision.SourcesFor(fs, course, resolver.CollisionMeshPaths);
+    Console.WriteLine($"{course.Name}: {sources.Count} collision files ({sources.Count(s => s.IsCompound)} compounds)");
+    foreach (var s in sources.Take(6)) Console.WriteLine($"  {s.Label}: {s.Path}");
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    var errors = new List<string>();
+    var mesh = MKWSatellite.Formats.Phive.CourseCollision.Load(fs, sources, errors);
+    Console.WriteLine($"{mesh.TriangleCount} triangles, {mesh.Materials.Count} materials, {sw.ElapsedMilliseconds} ms");
+    foreach (var e in errors.Take(10)) Console.WriteLine($"  error {e}");
+    foreach (var (k, n) in mesh.Skipped) Console.WriteLine($"  skipped {n} x {k}");
+    var names = new MKWSatellite.Formats.Phive.PhiveNames(fs);
+    foreach (var g in mesh.TriangleMaterial.GroupBy(m => m).OrderByDescending(g => g.Count()))
+        Console.WriteLine($"  {g.Count(),8} tris  {(g.Key < 0 ? "(none)" : names.Describe(mesh.Materials[g.Key]))}");
+
+    // Ground under each lap node: nearest upward-facing hit straight below (within 30 units above / 200 below).
+    var below = new List<float>();
+    var hitMat = new Dictionary<string, int>();
+    var P = mesh.Positions;
+    foreach (var lp in course.LapPoints)
+    {
+        var o = lp.Position + new System.Numerics.Vector3(0, 30, 0);
+        float best = float.MaxValue; var bestM = -1;
+        for (var t = 0; t < mesh.TriangleCount; t++)
+        {
+            System.Numerics.Vector3 a = P[3 * t], b = P[3 * t + 1], c = P[3 * t + 2];
+            if (o.X < MathF.Min(a.X, MathF.Min(b.X, c.X)) || o.X > MathF.Max(a.X, MathF.Max(b.X, c.X))
+                || o.Z < MathF.Min(a.Z, MathF.Min(b.Z, c.Z)) || o.Z > MathF.Max(a.Z, MathF.Max(b.Z, c.Z))) continue;
+            // barycentric in XZ
+            var d = (b.Z - c.Z) * (a.X - c.X) + (c.X - b.X) * (a.Z - c.Z);
+            if (MathF.Abs(d) < 1e-9f) continue;
+            var w0 = ((b.Z - c.Z) * (o.X - c.X) + (c.X - b.X) * (o.Z - c.Z)) / d;
+            var w1 = ((c.Z - a.Z) * (o.X - c.X) + (a.X - c.X) * (o.Z - c.Z)) / d;
+            var w2 = 1 - w0 - w1;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            var y = w0 * a.Y + w1 * b.Y + w2 * c.Y;
+            var dist = o.Y - y;
+            if (dist >= 0 && dist < best) { best = dist; bestM = mesh.TriangleMaterial[t]; }
+        }
+        if (best < 230)
+        {
+            below.Add(best - 30);
+            var key = bestM < 0 ? "(none)" : names.Describe(mesh.Materials[bestM]);
+            hitMat[key] = hitMat.GetValueOrDefault(key) + 1;
+        }
+    }
+    below.Sort();
+    if (below.Count > 0)
+        Console.WriteLine($"lap nodes over collision: {below.Count}/{course.LapPoints.Count}; node height above surface: median {below[below.Count / 2]:0.00}, p10 {below[below.Count / 10]:0.00}, p90 {below[below.Count * 9 / 10]:0.00}");
+    foreach (var (k, n) in hitMat.OrderByDescending(kv => kv.Value)) Console.WriteLine($"  under lap nodes: {n,4} x {k}");
+
+    if (parse.GetValue(colObj) is { } objPath)
+    {
+        using var w = new StreamWriter(objPath);
+        foreach (var p in P) w.WriteLine(FormattableString.Invariant($"v {p.X:0.###} {p.Y:0.###} {p.Z:0.###}"));
+        foreach (var g in Enumerable.Range(0, mesh.TriangleCount).GroupBy(t => mesh.TriangleMaterial[t]))
+        {
+            w.WriteLine($"g {(g.Key < 0 ? "none" : names.Material(mesh.Materials[g.Key].Material) + "_" + names.SubMaterial(mesh.Materials[g.Key].SubMaterial))}");
+            foreach (var t in g) w.WriteLine($"f {3 * t + 1} {3 * t + 2} {3 * t + 3}");
+        }
+        Console.WriteLine($"wrote {objPath}");
+    }
+    return 0;
+});
+root.Subcommands.Add(colCmd);
 
 return root.Parse(args).Invoke();
 

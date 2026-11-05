@@ -38,6 +38,9 @@ public sealed class ViewLayers
     public bool Terrain = true, Water = true;
     /// <summary>Merged open-world geometry (city floors, track parts, street furniture: <c>Piece_Gridify_*</c>).</summary>
     public bool WorldPieces = true;
+    /// <summary>Collision mesh (Phive) coloured by material or surface; volumes are sensors, Valley and AirWall.</summary>
+    public bool Collision = false, CollisionVolumes = true, CollisionEdges = true, CollisionBySurface = false;
+    public float CollisionOpacity = 1f;
     /// <summary>Draw the 2D markers for objects that are shown as models.</summary>
     public bool MarkersOnModels = true;
     /// <summary>Multiplier for line widths and marker sizes.</summary>

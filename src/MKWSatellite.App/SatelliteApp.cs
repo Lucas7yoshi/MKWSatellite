@@ -6,6 +6,7 @@ using MKWSatellite.Formats.Byml;
 using MKWSatellite.Formats.Configuration;
 using MKWSatellite.Formats.Course;
 using MKWSatellite.Formats.IO;
+using MKWSatellite.Formats.Phive;
 using MKWSatellite.Formats.Imaging;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
@@ -38,6 +39,11 @@ public sealed partial class SatelliteApp : IDisposable
     private bool _use3D, _panning;
     private ModelLibrary? _models;
     private TerrainRenderer? _terrain;
+    private CollisionRenderer? _collision;
+    private PhiveNames? _phiveNames;
+    private Task<(CollisionMesh Mesh, List<string> Errors, int Files)>? _collisionTask;
+    private string? _collisionFor, _collisionStatus, _collisionHover;
+    private List<string> _collisionErrors = [];
     private IReadOnlyList<WorldPiece> _pieces = [];
     private IViewCamera ActiveCamera => _use3D ? _orbit : _camera;
     private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
@@ -73,6 +79,8 @@ public sealed partial class SatelliteApp : IDisposable
         _models = null;
         _terrain?.Dispose();
         _terrain = null;
+        _collision?.Dispose();
+        _collision = null;
         _batch?.Dispose();
         _imgui?.Dispose();
         _batch = null!;
@@ -100,6 +108,11 @@ public sealed partial class SatelliteApp : IDisposable
             var resolver = _models.Resolver;
             _view.AreaShapeOf = resolver.AreaShapeOf;
             if (TerrainRenderer.Exists(_fs)) _terrain = new TerrainRenderer(_gl, _fs);
+            if (_fs.Exists(PhiveNames.Path))
+            {
+                try { _phiveNames = new PhiveNames(_fs); } catch (InvalidDataException) { }
+                _collision = new CollisionRenderer(_gl) { IsVolume = IsCollisionVolume, ColorOf = CollisionColor };
+            }
         }
         _use3D = _options.View3D;
         if (_options.NoModels) _view.Layers.Models = false;
@@ -211,6 +224,10 @@ public sealed partial class SatelliteApp : IDisposable
                 : [];
             _history = new();
             _saveMessage = null;
+            _collision?.Clear();
+            _collisionFor = null;
+            _collisionTask = null;
+            _collisionHover = null;
             var ys = course.Objects.Select(o => o.Position.Y).Concat(course.LapPoints.Select(l => l.Position.Y)).ToList();
             _camera.DepthMinY = (ys.Count > 0 ? ys.Min() : 0) - 1500;
             _camera.DepthMaxY = (ys.Count > 0 ? ys.Max() : 0) + 1500;
@@ -285,6 +302,7 @@ public sealed partial class SatelliteApp : IDisposable
             if (move != Vector3.Zero) _orbit.Fly(move * (k.IsKeyPressed(Key.ShiftLeft) ? 3 : 1), dt);
         }
         _view.UpdateHover(_orbit, pos, free && _dragStart is null && !_panning);
+        UpdateCollisionHover(pos, free && _dragStart is null && !_panning);
         _lastMouse = pos;
     }
 
@@ -332,6 +350,7 @@ public sealed partial class SatelliteApp : IDisposable
         }
 
         _view.UpdateHover(_camera, pos, free && _dragStart is null);
+        UpdateCollisionHover(pos, free && _dragStart is null);
         _lastMouse = pos;
     }
 
@@ -364,6 +383,7 @@ public sealed partial class SatelliteApp : IDisposable
         _gl.Viewport((int)cam.ViewportPos.X, 0, (uint)cam.ViewportSize.X, (uint)cam.ViewportSize.Y);
         DrawTerrain(cam);
         DrawModels(cam);
+        DrawCollision(cam);
         if (_terrain is not null && _view.Course is not null && _view.Layers.Terrain && _view.Layers.Water) _terrain.DrawWater(cam.ViewProjection);
         _view.Draw(cam);
         _gl.Viewport(0, 0, (uint)fb.X, (uint)fb.Y);
@@ -389,7 +409,7 @@ public sealed partial class SatelliteApp : IDisposable
         if (_tiles is { } t)
         {
             // Each tile moves the camera, so terrain streams in again: capture once loading has settled.
-            var busy = (_models?.Pending ?? 0) + (_terrain is not null && _view.Layers.Terrain ? _terrain.Pending : 0) > 0;
+            var busy = (_models?.Pending ?? 0) + (_terrain is not null && _view.Layers.Terrain ? _terrain.Pending : 0) + CollisionPending > 0;
             _tileSettle = busy && _tileWait++ < 600 ? 0 : _tileSettle + 1;
             if (_tileSettle >= 2)
             {
@@ -408,7 +428,7 @@ public sealed partial class SatelliteApp : IDisposable
         {
             // Wait for models to finish loading (bounded), then a few settled frames.
             var terrainPending = _terrain is not null && _view.Layers.Terrain ? _terrain.Pending + (_terrain.IsAvailable ? 0 : 1) : 0;
-            _idleFrames = (_models?.Pending ?? 0) + terrainPending == 0 ? _idleFrames + 1 : 0;
+            _idleFrames = (_models?.Pending ?? 0) + terrainPending + CollisionPending == 0 ? _idleFrames + 1 : 0;
             if (_idleFrames >= 3 || _clock.Elapsed.TotalSeconds > 300)
             {
                 var win = _window.FramebufferSize;
@@ -426,6 +446,81 @@ public sealed partial class SatelliteApp : IDisposable
         if (_terrain is null || _view.Course is null || !_view.Layers.Terrain) return;
         _terrain.Update(cam, _options.IsScreenshot ? 200 : 6);
         _terrain.Draw(cam.ViewProjection, LightDir);
+    }
+
+    private int CollisionPending => _collision is not null && _view.Layers.Collision && _view.Course is not null && !_collision.HasData ? 1 : 0;
+
+    /// <summary>Sensor layers (respawn, dash, no-jump volumes), the Valley layer and invisible walls are see-through volumes.</summary>
+    private bool IsCollisionVolume(CollisionMaterial m) =>
+        (m.Layer >= 0 && ((m.Layer & 0xFF) == 1 || (m.Layer >> 8 & 0xFF) == 22)) ||
+        _phiveNames?.Material(m.Material) is "AirWall" or "Valley" or "Rescue" or "Fall";
+
+    private uint CollisionColor(CollisionMaterial m, bool bySurface) => _phiveNames is not { } n ? 0xFFAAAAAA
+        : bySurface ? Palette.ForCollisionSurface(n.SubMaterial(m.SubMaterial)) : Palette.ForCollisionMaterial(n.Material(m.Material));
+
+    /// <summary>Starts reading the course's collision on a worker when the layer is on; uploads it when done.</summary>
+    private void UpdateCollision()
+    {
+        if (_collision is null || _fs is null || _view.Course is not { } course || !_view.Layers.Collision) return;
+        if (_collisionFor != course.Name)
+        {
+            _collisionFor = course.Name;
+            _collision.Clear();
+            var fs = _fs;
+            var resolver = _models?.Resolver ?? new MKWSatellite.Formats.Models.ActorModelResolver(fs);
+            _collisionStatus = "loading collision...";
+            _collisionTask = Task.Run(() =>
+            {
+                var sources = CourseCollision.SourcesFor(fs, course, resolver.CollisionMeshPaths);
+                var errors = new List<string>();
+                var mesh = CourseCollision.Load(fs, sources, errors);
+                return (mesh, errors, sources.Count);
+            });
+        }
+        if (_collisionTask is { IsCompleted: true } t)
+        {
+            _collisionTask = null;
+            if (t.IsFaulted) { _collisionStatus = $"collision failed: {t.Exception?.GetBaseException().Message}"; return; }
+            var (mesh, errors, files) = t.Result;
+            _collision.SetColorMode(_view.Layers.CollisionBySurface);
+            _collision.Upload(mesh);
+            _collisionErrors = errors;
+            _collisionStatus = $"{mesh.TriangleCount:N0} triangles from {files} files" + (errors.Count > 0 ? $", {errors.Count} errors" : "");
+        }
+    }
+
+    private void DrawCollision(IViewCamera cam)
+    {
+        UpdateCollision();
+        if (_collision is null || _view.Course is null || !_view.Layers.Collision) return;
+        _collision.SetColorMode(_view.Layers.CollisionBySurface);
+        _collision.Draw(cam.ViewProjection, LightDir, _view.Layers.CollisionOpacity, _view.Layers.CollisionVolumes, _view.Layers.CollisionEdges);
+    }
+
+    private Vector2 _collisionHoverAt = new(-1);
+
+    /// <summary>Surface under the mouse (when nothing else is hovered): material, surface, tags, layer.</summary>
+    private void UpdateCollisionHover(Vector2 pos, bool free)
+    {
+        if (_collision?.Mesh is not { } mesh || !_view.Layers.Collision || !free || _view.Hovered is not null || _phiveNames is null)
+        {
+            _collisionHover = null;
+            return;
+        }
+        if (Vector2.DistanceSquared(pos, _collisionHoverAt) < 1) return;
+        _collisionHoverAt = pos;
+        Vector3 origin, dir;
+        if (_use3D) (origin, dir) = _orbit.Ray(pos);
+        else
+        {
+            var w = _camera.ScreenToWorld(pos);
+            (origin, dir) = (new Vector3(w.X, 100000, w.Y), -Vector3.UnitY);
+        }
+        if (_collision.Raycast(origin, dir, _view.Layers.CollisionVolumes) is not { } hit) { _collisionHover = null; return; }
+        var m = mesh.TriangleMaterial[hit.Triangle];
+        var p = origin + dir * hit.Distance;
+        _collisionHover = (m < 0 ? "Collision (no material)" : _phiveNames.Describe(mesh.Materials[m])) +
+                          FormattableString.Invariant($"\nat {p.X:0.0}, {p.Y:0.0}, {p.Z:0.0}");
     }
 
     private void DrawModels(IViewCamera cam)
@@ -529,6 +624,13 @@ public sealed partial class SatelliteApp : IDisposable
 
     private void DrawHoverTooltip()
     {
+        if (_view.Hovered is null && _collisionHover is { } ch && !_options.IsScreenshot)
+        {
+            ImGui.BeginTooltip();
+            ImGui.TextUnformatted(ch);
+            ImGui.EndTooltip();
+            return;
+        }
         if (_view.Hovered is not { } h || _options.IsScreenshot) return;
         ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
         ImGui.BeginTooltip();
@@ -686,6 +788,7 @@ public sealed partial class SatelliteApp : IDisposable
             Toggle("World geometry (merged pieces)", ref L.WorldPieces);
         }
         Toggle("2D markers on modelled objects", ref L.MarkersOnModels);
+        if (_collision is not null) DrawCollisionToggles(Toggle);
         if (_models is { Errors.Count: > 0 } && ImGui.TreeNode($"Model errors ({_models.Errors.Count})"))
         {
             lock (_models.Errors) foreach (var e in _models.Errors.Take(50)) ImGui.TextWrapped(e);
@@ -697,6 +800,49 @@ public sealed partial class SatelliteApp : IDisposable
         Toggle("Course _Fix layer", ref L.LayerCourseFix);
         if (changed) _view.Invalidate();
     }
+
+    private void DrawCollisionToggles(ToggleFn toggle)
+    {
+        var L = _view.Layers;
+        ImGui.TextDisabled("Collision");
+        toggle("Collision (Phive)", ref L.Collision, Palette.ForCollisionMaterial("Road"));
+        if (!L.Collision) return;
+        if (_collisionStatus is not null) { ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine(); ImGui.TextDisabled(_collisionStatus); }
+        ImGui.SetNextItemWidth(120 * _uiScale);
+        ImGui.SliderFloat("Collision opacity", ref L.CollisionOpacity, 0.1f, 1f, "%.2f");
+        var bySurface = L.CollisionBySurface ? 1 : 0;
+        ImGui.SetNextItemWidth(120 * _uiScale);
+        if (ImGui.Combo("Colour by", ref bySurface, "Material (gameplay)\0Surface (sub-material)\0")) L.CollisionBySurface = bySurface == 1;
+        toggle("Volumes (respawn, valley, air walls...)", ref L.CollisionVolumes);
+        toggle("Triangle edges", ref L.CollisionEdges);
+        if (_collision?.Mesh is not { } mesh || _phiveNames is not { } names) return;
+        if (!ImGui.TreeNode($"Materials ({mesh.Materials.Count})###colmats")) return;
+        // One row per name in the current colour mode; unticking hides those triangles.
+        var counts = new Dictionary<int, int>();
+        foreach (var m in mesh.TriangleMaterial) counts[m] = counts.GetValueOrDefault(m) + 1;
+        string Key(int i) => i < 0 ? "(none)" : L.CollisionBySurface ? names.SubMaterial(mesh.Materials[i].SubMaterial) : names.Material(mesh.Materials[i].Material);
+        foreach (var g in counts.Keys.GroupBy(Key).OrderByDescending(g => g.Sum(i => counts[i])))
+        {
+            var visible = g.Any(i => !_collision.IsHidden(i));
+            var c = g.Key == "(none)" ? 0xFF808080 : L.CollisionBySurface ? Palette.ForCollisionSurface(g.Key) : Palette.ForCollisionMaterial(g.Key);
+            var p = ImGui.GetCursorScreenPos();
+            var sz = ImGui.GetTextLineHeight() * 0.75f;
+            var top = (ImGui.GetFrameHeight() - sz) / 2;
+            ImGui.GetWindowDrawList().AddRectFilled(p + new Vector2(0, top), p + new Vector2(sz, top + sz), c);
+            ImGui.Dummy(new Vector2(sz + 4, 0));
+            ImGui.SameLine();
+            if (ImGui.Checkbox($"{g.Key}  ({g.Sum(i => counts[i]):N0})###cm{g.Key}", ref visible))
+                foreach (var i in g) _collision.SetHidden(i, !visible);
+        }
+        if (_collisionErrors.Count > 0 && ImGui.TreeNode($"Errors ({_collisionErrors.Count})"))
+        {
+            foreach (var e in _collisionErrors.Take(30)) ImGui.TextWrapped(e);
+            ImGui.TreePop();
+        }
+        ImGui.TreePop();
+    }
+
+    private delegate void ToggleFn(string label, ref bool value, uint? swatch = null);
 
     private void DrawInspector()
     {

@@ -39,5 +39,6 @@ benefit, not a requirement.
 - Courses: `Banc/Race_*.bcett.byml.zs` + world tiles `Banc/World_Game03/XXZZ` or `<Course>_00_Fix` (scene-layers.md).
 - Models/textures: BFRES 10 + BNTX 4.1, Switch 2 block-linear layout (models.md).
 - Terrain: `TerrainArc/Game03_Proc.tscb` + per-area TARB maps (terrain.md).
+- Collision: `Phive/StaticCompoundBody/{Course,World_Game03}/*.bphsc`, `Phive/Terrain/Game03_Proc/*.bphsh`, `_Fix` stage shapes in `Phive/Shape/Dcc/` (collision.md; check with `mkwsat collision <course>`).
 - Merged world geometry (city streets, track parts, street furniture): `Model/Piece_Gridify_Game03_X##_Z##.*`
   (terrain.md, "World pieces").

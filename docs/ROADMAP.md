@@ -19,7 +19,7 @@ Work in this order, then stop for review.
    - Check course texture formats early (Switch 2 may use ASTC).
    - Needs the project licence decided first (see DECISIONS.md).
 
-Deferred: Phive collision (surface types). Editing and saving: started 2026-11-05 (race layer; see D17).
+Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: started 2026-11-05 (race layer; see D17).
 
 ## Progress log
 
@@ -48,3 +48,4 @@ Deferred: Phive collision (surface types). Editing and saving: started 2026-11-0
 | 2026-11-05 | Terrain (formats/terrain.md): TSCB quadtree + TARB maps decoded (height, material, color_mul2, albedo_far, water), checked against lap paths and the game's own far albedo. App streams it by camera (frustum + screen-space LOD, worker loads, 320-tile GPU cache), materials from the 46-layer albedo array, water surfaces; "Terrain"/"Water" toggles, frame time in the status line. CLI `terrain`, `tex --layer`. Not done: terrain normal maps, `bake_*` lighting, Phive terrain collision. |
 | 2026-11-05 | Merged world geometry (`Piece_Gridify_*`, terrain.md): Crown City's streets, roads and bridges between courses now drawn (they were missing before terrain too). Water only where clearly above the ground; tiled screenshots wait for streaming per tile. CLAUDE.md added (working rules, IDA). |
 | 2026-11-05 | Rails (formats/rails.md): grind rails drawn (RailSlidePath by RailSlideType, ColRailSlidePath on fences/guardrails), all other path kinds drawn; inspector explains each kind, lists rail length, prefab, owning actor and the objects that follow it; course summary has a Paths table. Snowboarding Shy Guys follow GuideGraphRails. |
+| 2026-11-05 | Collision (formats/collision.md): Havok tagfile reflection reader, Phive shapes/static compounds (quantized + float mesh sections, per-triangle material runs, nested compounds, convex hulls, capsules), PhiveConfig names. Course collision = race-scene compound + world compound cells + terrain cells, or `_Fix` stage shapes via ShapeParam. Viewer "Collision" layer coloured by material or surface, volumes, per-material hiding, hover info. CLI `collision` (lap nodes sit on the collision: median 0-0.9 units on four courses). Not done: kart/character hitboxes. |

@@ -14,10 +14,10 @@
 | `Banc/` | Course/scene placement, `*.bcett.byml.zs` (see banc.md). 1.8: 717 scenes, 57 `Race_*`. | Parsed |
 | `Model/` | BFRES models, `<Group>.<Model>.bfres.zs` (e.g. `Stage_Cinema.Stage_Cinema_A.bfres.zs`, `..._Far`). ~5.8k files. | Planned |
 | `Tex/` | External textures for models | Planned |
-| `Phive/StaticCompoundBody/Course/` | Per-scene collision, `*.Nin_Ounce_NVN2.bphsc.zs` (e.g. `Race_Cinema_A_00`, `RaceStage_Cinema_A_00`) | Deferred |
-| `Phive/Shape/Dcc/` | Collision shapes `*.bphsh.zs` (e.g. `Stage_Cinema_A`) | Deferred |
+| `Phive/StaticCompoundBody/Course/`, `.../World_Game03/` | Static compound collision `*.bphsc.zs`: per race scene, and per 250-unit world cell | Read (collision.md) |
+| `Phive/Shape/Dcc/` | Collision shapes `*.bphsh.zs` (e.g. `Stage_Cinema_A`) | Read for `_Fix` stages (collision.md) |
 | `TerrainArc/Game03_Proc.tscb`, `TerrainArc/Game03_Proc/` | Open-world terrain quadtree and per-area maps (see terrain.md) | Drawn (height, materials, colour, water) |
-| `Phive/Terrain/` | Terrain collision | Not planned |
+| `Phive/Terrain/` | Terrain collision `Game03_Proc/X##_Z##_ij.bphsh.zs` (4096) | Read (collision.md) |
 | `Sound/Resource/` | Audio (`*.bars.zs`, BARS/AMTA with music metadata) | Out of scope |
 
 ## exefs

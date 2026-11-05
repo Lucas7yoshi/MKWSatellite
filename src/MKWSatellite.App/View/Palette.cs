@@ -105,4 +105,71 @@ public static class Palette
         var c = Vector3.Lerp(stops[i], stops[i + 1], f - i);
         return Rgb((byte)(c.X * 255), (byte)(c.Y * 255), (byte)(c.Z * 255));
     }
+
+    /// <summary>Collision colour by gameplay material (PhiveConfig MaterialCollection name).</summary>
+    public static uint ForCollisionMaterial(string m) => m switch
+    {
+        "Road" => Rgb(150, 152, 165),
+        "LowDirt" => Rgb(185, 160, 105),
+        "Dirt" => Rgb(160, 115, 60),
+        "HighDirt" => Rgb(115, 75, 35),
+        "Bumpy" => Rgb(205, 175, 70),
+        "Slip" => Rgb(130, 205, 255),
+        "HighSlip" => Rgb(60, 140, 255),
+        "Wall" => Rgb(205, 85, 70),
+        "LowWall" => Rgb(230, 145, 105),
+        "BoundWall" => Rgb(240, 50, 50),
+        "HPWall" => Rgb(255, 80, 170),
+        "MobVehicleWall" => Rgb(190, 70, 120),
+        "AirWall" => Rgb(235, 235, 255),
+        "Dash" => Rgb(255, 140, 0),
+        "DashGlide" => Rgb(255, 190, 0),
+        "Glide" => Rgb(0, 225, 190),
+        "KillerGlide" => Rgb(255, 95, 30),
+        "Trampoline" => Rgb(225, 90, 255),
+        "Gravity" => Rgb(150, 80, 255),
+        "Water" => Rgb(40, 110, 235),
+        "MuddyWater" => Rgb(120, 95, 55),
+        "Shallows" => Rgb(90, 175, 230),
+        "Lava" => Rgb(255, 60, 0),
+        "Fall" => Rgb(40, 40, 40),
+        "Valley" => Rgb(110, 20, 150),
+        "Rescue" => Rgb(255, 0, 255),
+        "Pole" => Rgb(240, 220, 80),
+        "Pull" => Rgb(200, 200, 0),
+        "Coin" or "ItemObj" or "Block" => Rgb(255, 220, 0),
+        "Audience" => Rgb(120, 120, 120),
+        _ => Rgb(175, 175, 175),
+    };
+
+    /// <summary>Collision colour by surface (SubMaterialCollection name); unknown names get a stable hashed colour.</summary>
+    public static uint ForCollisionSurface(string s) => s switch
+    {
+        "Asphalt" => Rgb(85, 88, 98),
+        "Concrete" => Rgb(170, 170, 165),
+        "Stone" => Rgb(135, 125, 110),
+        "Wood" => Rgb(170, 120, 70),
+        "Kusa" => Rgb(80, 170, 60),
+        "Soil" => Rgb(140, 95, 55),
+        "Sand" => Rgb(225, 200, 130),
+        "Snow" => Rgb(240, 245, 255),
+        "Ice" => Rgb(150, 220, 255),
+        "Iron" => Rgb(110, 135, 165),
+        "Kanaami" => Rgb(150, 160, 120),
+        "Glass" => Rgb(170, 230, 230),
+        "Carpet" => Rgb(190, 60, 70),
+        "Cloud" => Rgb(250, 250, 250),
+        "Rainbow" => Rgb(255, 120, 230),
+        "AirWall" => Rgb(235, 235, 255),
+        "Mud" => Rgb(100, 75, 45),
+        "Lava" => Rgb(255, 60, 0),
+        _ => Hashed(s),
+    };
+
+    private static uint Hashed(string s)
+    {
+        var h = 0u;
+        foreach (var ch in s) h = h * 31 + ch;
+        return Rgb((byte)(90 + h % 150), (byte)(90 + h / 150 % 150), (byte)(90 + h / 22500 % 150));
+    }
 }
