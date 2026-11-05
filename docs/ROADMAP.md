@@ -55,3 +55,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | PNG writer: RGB when opaque, per-row adaptive filters, zlib SmallestSize (4K screenshot 16.7 → 10.7 MB, lossless). |
 | 2026-11-05 | Camera framing (top-down and 3D) includes every lap gate, so progress zones aren't cropped. |
 | 2026-11-05 | `mkwsat dump <path> --yaml`: whole BYML as plain YAML. |
+| 2026-11-05 | Non-checkpoint lap gates drawn orange and thicker (were faint grey). |

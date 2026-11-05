@@ -16,7 +16,7 @@ public static class Palette
     public static readonly uint CheckpointGate = Rgb(255, 214, 10);
     public static readonly uint StartGate = Rgb(255, 255, 255);
     public static readonly uint LapCheckGate = Rgb(255, 120, 200);
-    public static readonly uint Gate = Rgb(150, 150, 120, 0xA0);
+    public static readonly uint Gate = Rgb(255, 145, 40);
     public static readonly uint Ruler = Rgb(120, 255, 160);
 
     public static uint ForCategory(ObjectCategory c) => c switch

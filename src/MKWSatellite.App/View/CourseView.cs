@@ -319,11 +319,11 @@ public sealed class CourseView(PrimitiveBatch batch)
                 if (is3D)
                 {
                     batch.Quad(g[0], g[1], g[2], g[3], Palette.WithAlpha(col, isCp ? (byte)0x50 : (byte)0x28));
-                    for (var i = 0; i < 4; i++) Line(g[i], g[(i + 1) % 4], isCp ? 3f : 1.5f, col);
+                    for (var i = 0; i < 4; i++) Line(g[i], g[(i + 1) % 4], isCp ? 3f : 2.5f, col);
                 }
                 else
                 {
-                    Line(g[0], g[1], isCp ? 5f : 2.5f, col);
+                    Line(g[0], g[1], isCp ? 5f : 4f, col);
                     Disc(lp.Position, 3f * Upp(lp.Position), col, 8);
                 }
             }
