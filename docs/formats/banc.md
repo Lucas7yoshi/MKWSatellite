@@ -37,6 +37,15 @@ rail's `IsClosed`.
 - `RectSize`/`RectOffset` form the point's gate rectangle in its local X/Y plane (verified: read by the rail parser).
   The gate faces local +Z, which follows the path: median 8–14° between the gate normal and the direction to the next
   point on Boo Cinema, Rainbow Road and Snow Mountain. Centring the rectangle on the offset is inferred, not traced.
+- The parser stores them on the runtime point at +0x50 (size X/Y) and +0x58 (offset X/Y), with a direction from
+  `Rotate` at +0x60 (1.8 `RailGraph_ParseRail` 0x710029AD70). The code that tests a racer against the gate has not
+  been found yet, so where the rectangle sits is still inferred. A data pattern argues against "centred on the
+  offset": gates that were widened to one side or made taller have offset = size − base exactly (Airship Fortress
+  nodes 55-60: size 30 + d, offset X d; Y: (offset, size) = (10, 20), (30, 35), (6.21, 9.21), (3.86, 6.86)). That fits
+  an editor that keeps one edge fixed, i.e. centre = offset / 2, which puts every gate's bottom 1.5-7.5 units below
+  the node; centring on the offset puts some 12 units or more above it. Not changed in the viewer until traced.
+- Lap nodes are not all on the ground: on Airship Fortress race nodes 38-40 rise from 742 to 778 over the launch onto
+  the airship, so those gates hang in the air on the flight path.
 - `Dynamic` keys seen across the 57 race scenes: `CheckPoint` (float, 585 nodes), `IsStart` (57, one per scene),
   `IsGoal` (6), `IsLapCheck` (15), `ChangeId` (15), `IsJugemLeft` (24), `LerpType` (145). Names only: their
   gameplay meaning (e.g. what counts as passing a checkpoint) has **not** been traced yet.
