@@ -286,6 +286,49 @@ groundCmd.SetAction(parse =>
 });
 root.Subcommands.Add(groundCmd);
 
+// areafit: how much of the lap path each area contains, under the physics shape vs the old editor-shape guess
+var fitCourse = new Argument<string>("course") { Description = "Race scene name filter." };
+var fitCmd = new Command("areafit", "Fraction of lap-path samples inside each area (physics box vs old 1-unit guess).") { fitCourse };
+fitCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var loader = new CourseLoader(fs);
+    var file = loader.ListRaceScenes().FirstOrDefault(f => f.Contains(parse.GetValue(fitCourse)!, StringComparison.OrdinalIgnoreCase));
+    if (file is null) { Console.Error.WriteLine("no such course"); return 1; }
+    var course = loader.Load(file);
+    var resolver = new MKWSatellite.Formats.Models.ActorModelResolver(fs);
+    var samples = new List<System.Numerics.Vector3>();
+    foreach (var rail in course.LapPoints.GroupBy(l => l.Rail))
+    {
+        var pts = rail.ToList();
+        for (var i = 0; i + 1 < pts.Count; i++)
+            for (var k = 0; k < 8; k++) samples.Add(System.Numerics.Vector3.Lerp(pts[i].Position, pts[i + 1].Position, k / 8f));
+    }
+    var oldShape = new AreaShape(new System.Numerics.Vector3(-0.5f, 0, -0.5f), new System.Numerics.Vector3(0.5f, 1, 0.5f), false, false, "old");
+    int Inside(CourseObject o, AreaShape sh)
+    {
+        var m = System.Numerics.Matrix4x4.CreateScale(o.Actor.Scale) * o.Rotation * System.Numerics.Matrix4x4.CreateTranslation(o.Position);
+        if (!System.Numerics.Matrix4x4.Invert(m, out var inv)) return 0;
+        var c = 0;
+        foreach (var q in samples)
+        {
+            var l = System.Numerics.Vector3.Transform(q, inv);
+            if (l.X >= sh.Min.X && l.X <= sh.Max.X && l.Y >= sh.Min.Y && l.Y <= sh.Max.Y && l.Z >= sh.Min.Z && l.Z <= sh.Max.Z) c++;
+        }
+        return c;
+    }
+    foreach (var g in course.Objects.Where(o => o.IsArea).GroupBy(o => o.Type).OrderBy(g => g.Key))
+    {
+        var sh = resolver.AreaShapeOf(g.Key);
+        int any = 0, anyOld = 0, tot = 0, totOld = 0;
+        foreach (var o in g) { var a = Inside(o, sh); var b = Inside(o, oldShape); tot += a; totOld += b; if (a > 0) any++; if (b > 0) anyOld++; }
+        Console.WriteLine($"{g.Key,-36} n={g.Count(),3}  with path inside: new {any,3} old {anyOld,3}   samples new {tot,5} old {totOld,5}   {(sh.FromPhysics ? "phys" : "guess")}");
+    }
+    return 0;
+});
+root.Subcommands.Add(fitCmd);
+
 return root.Parse(args).Invoke();
 
 static GameFileSystem? OpenFs(string[]? romfs)

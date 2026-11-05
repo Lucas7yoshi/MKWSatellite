@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Numerics;
 using MKWSatellite.Formats.Archives;
 using MKWSatellite.Formats.Byml;
+using MKWSatellite.Formats.Course;
 using MKWSatellite.Formats.IO;
 
 namespace MKWSatellite.Formats.Models;
@@ -19,6 +21,8 @@ public sealed class ActorModelResolver
     private readonly GameFileSystem _fs;
     private readonly Lazy<Sarc?> _actors;
     private readonly Lazy<Sarc?> _modelInfo;
+    private readonly Lazy<Sarc?> _physics;
+    private readonly Lazy<Sarc?> _phive;
     private readonly ConcurrentDictionary<string, string?> _cache = new(StringComparer.Ordinal);
 
     public ActorModelResolver(GameFileSystem fs)
@@ -26,6 +30,8 @@ public sealed class ActorModelResolver
         _fs = fs;
         _actors = new(() => OpenArchive("actor_general_format"));
         _modelInfo = new(() => OpenArchive("modelinfo_general_format"));
+        _physics = new(() => OpenArchive("phwe_general_format"));
+        _phive = new(() => OpenArchive("phive_general_format"));
     }
 
     private Sarc? OpenArchive(string prefix)
@@ -44,6 +50,34 @@ public sealed class ActorModelResolver
             : null);
 
     private readonly ConcurrentDictionary<string, string?> _shapes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, AreaShape> _areaShapes = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// An area actor's volume. Follows <c>Components.PhysicsRef</c> (PhysicsGParam) → <c>ControllerSetResourcePath</c>
+    /// (Phive ControllerSetParam) → <c>ShapeNamePathAry[0]</c> (Phive ShapeParam) and uses its first <c>Box</c>
+    /// (<c>Center</c> + <c>OffsetTranslation</c>, <c>HalfExtents</c>). Actors without a physics box fall back to
+    /// <see cref="AreaShape.FromDummy"/>.
+    /// </summary>
+    public AreaShape AreaShapeOf(string actorType) => _areaShapes.GetOrAdd(actorType, t =>
+    {
+        var dummy = DummyShape(t);
+        if (_actors.Value is { } actors && _physics.Value is { } physics && _phive.Value is { } phive
+            && Lookup(actors, $"Work/Gyml/ActorGParam/{t}.gear__ActorGParam.gyml", d => d.Dict("Components")?.Get<string>("PhysicsRef")) is { } physRef
+            && Lookup(physics, physRef, d => d.Get<string>("ControllerSetResourcePath")) is { } controllerSet
+            && Lookup(phive, controllerSet, d => d.Array("ShapeNamePathAry")?.OfType<BymlDict>().FirstOrDefault()?.Get<string>("FilePath")) is { } shapePath
+            && Lookup(phive, shapePath, d => d.Array("Box")?.OfType<BymlDict>().FirstOrDefault()) is { } box)
+        {
+            var c = Vec(box.Dict("Center")) + Vec(box.Dict("OffsetTranslation"));
+            var h = Vec(box.Dict("HalfExtents"));
+            if (h != Vector3.Zero)
+                return new AreaShape(c - h, c + h, false, true,
+                    $"physics box centre ({c.X:0.##}, {c.Y:0.##}, {c.Z:0.##}) half ({h.X:0.##}, {h.Y:0.##}, {h.Z:0.##}) x Scale");
+        }
+        return AreaShape.FromDummy(dummy);
+    });
+
+    private static Vector3 Vec(BymlDict? d) =>
+        d is null ? Vector3.Zero : new Vector3(Convert.ToSingle(d.GetValueOrDefault("X") ?? 0f), Convert.ToSingle(d.GetValueOrDefault("Y") ?? 0f), Convert.ToSingle(d.GetValueOrDefault("Z") ?? 0f));
 
     private string? Resolve(string actorType)
     {

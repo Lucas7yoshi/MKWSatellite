@@ -70,10 +70,8 @@ rail's `IsClosed`.
   facing doesn't matter. Drawn without an arrow.
 
 ## Areas
-Areas are drawn as a unit cube (or a unit-diameter circle for `PrimitiveType` Sphere/Cylinder) scaled by `Scale`.
-The 1-unit base is **inferred, not traced**: Rainbow's delete areas have scales of 500–2,100 that only make sense as
-sizes in units, and rescue areas (10×19) fit the track width. Area types and their developer labels are listed
-in scene-layers.md and `CourseObjectClassifier.SystemTypes`.
+An area's volume comes from its **Phive shape**, in local units multiplied by `Scale` (see "Area shapes" below).
+Area types and their developer labels are listed in scene-layers.md and `CourseObjectClassifier.SystemTypes`.
 
 ## Notable actor types (Rainbow Road / Boo Cinema)
 `CmnObj_ItemBox000_A/B_00`, `CmnObj_Coin000_A_00`, `StartPosition` (`Dynamic.StartPositionId`), `CmnObj_DashBoard000_*`, `CmnObj_GlideBoard000_*`, `CmnObj_AccelRing000_A_00`, `SystemObj_RescueArea_00` (respawn), `SystemObj_ValleyArea_00`, `SystemObj_GlideAreaKiller_00`, `Area_DeleteLinkedActor_00`, `SystemObj_HighSpeedArea_00`, course-specific objects (`CmnObj_TeresaCinema000_A_00` Boos, `SystemObj_RainbowTrain*`).
@@ -116,7 +114,22 @@ e.g. over the gap before the finish line.
 Interstage and Rally routes carry far more flags (e.g. `LongRally_BigTreeToAirshipFortress`: 677).
 
 ## Area shapes
-An area's actor gyml has `BancDummyShape` (`Cube_c` 33 types, `Cube_t` 14, `Cube` 9, `Sphere` 4, `Cylinder` 3,
-`Cylinder_c` 2). Rescue/valley/high-speed/dash areas are `Cube_t`; across all race scenes the lap and route points inside
-rescue areas sit 0.3-0.7 of the box height above the actor's origin, so `Cube_t` boxes extend upwards from their origin
-(Y 0..1 × Scale) while `_c` ones are centred. Inferred from data, not traced in code.
+Areas with collision follow actor gyml `Components.PhysicsRef` (PhysicsGParam, `phwe_general_format` archive) →
+`ControllerSetResourcePath` (Phive ControllerSetParam, `phive_general_format`) → `ShapeNamePathAry[0].FilePath` (Phive
+ShapeParam) → `Box[0]` with `Center`, `HalfExtents` and optional `OffsetTranslation`. Values in 1.8:
+
+| Shape | Types |
+|---|---|
+| centre (0,-1,0), half 1: **Y -2..0, hangs below the origin**, X/Z ±1 | every `BancDummyShape: Cube_t` area with physics: Rescue, RescueAreaMovable, Valley, HighSpeed, GlideAreaKiller, NoJA, RideKeepOut, Glide |
+| centre 0, half 1 | CreateLinkArea, GigantDKBounceArea, ForbidReverseArea |
+| offset (0,1,0), half 1 | EffectAreaBox |
+| half 0.5 | BirdArea |
+
+So a box is **2 × Scale** across, not 1 × Scale as the viewer first assumed, and `Cube_t` boxes extend downward.
+Check (`mkwsat areafit`): on Rainbow Road all 18 high-speed areas contain the lap path (the old guess: 2), while
+rescue, valley and ride keep-out areas contain none of it, as off-road volumes should. Ride keep-out areas ("ライド
+進入禁止エリア(壁)", wall-ride keep-out) sit at wall height above the road, e.g. Mario Bros. Circuit's start arch.
+
+Areas without a physics shape (`Area_EnvCube`, `NoEntryArea`, `Area_DeleteLinkedActor`, camera/sound areas...) fall
+back to `BancDummyShape`: `*_t` as the `Cube_t` box above, anything else centred with half-extents 1. That fallback is
+a guess and the inspector says so.

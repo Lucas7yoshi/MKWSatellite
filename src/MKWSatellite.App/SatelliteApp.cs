@@ -93,7 +93,8 @@ public sealed partial class SatelliteApp : IDisposable
         {
             _models = new ModelLibrary(_gl, _fs);
             _view.HasModel = o => _models?.Get(o.Type) is not null;
-            _view.DummyShape = t => _models?.Resolver.DummyShape(t);
+            var resolver = _models.Resolver;
+            _view.AreaShapeOf = resolver.AreaShapeOf;
         }
         _use3D = _options.View3D;
         if (_options.NoModels) _view.Layers.Models = false;
@@ -569,7 +570,7 @@ public sealed partial class SatelliteApp : IDisposable
         Toggle("Fences", ref L.Fences, Palette.ForCategory(ObjectCategory.Fence));
         Toggle("Audience", ref L.Audience, Palette.ForCategory(ObjectCategory.Audience));
         Toggle("Other scenery", ref L.Scenery, Palette.ForCategory(ObjectCategory.Other));
-        ImGui.TextDisabled("Areas (base size inferred)");
+        ImGui.TextDisabled("Areas (physics box where known)");
         Toggle("Rescue / respawn areas", ref L.RespawnAreas, Palette.ForCategory(ObjectCategory.RespawnArea));
         Toggle("Recovery points", ref L.RecoveryPoints, Palette.ForCategory(ObjectCategory.RecoveryPoint));
         Toggle("Valley areas", ref L.ValleyAreas, Palette.ForCategory(ObjectCategory.ValleyArea));
@@ -643,6 +644,7 @@ public sealed partial class SatelliteApp : IDisposable
                 if (o.Actor.Raw.Dict("ScreenSetting") is { } screens)
                     ImGui.TextColored(new Vector4(0.6f, 0.8f, 1, 1), "Split-screen: " + string.Join(", ", screens.Select(kv => $"{kv.Key}={kv.Value}")) + "  (1 = not spawned in that mode; ignored in single-player)");
                 if (o.Actor.Raw.Get<string>("AreaName") is { } area) ImGui.TextDisabled($"area: {area}");
+                if (o.IsArea && _models is not null) ImGui.TextWrapped("shape: " + _models.Resolver.AreaShapeOf(o.Type).Description);
                 if (!DrawEditFields())
                 {
                     Vec("Position", o.Position);

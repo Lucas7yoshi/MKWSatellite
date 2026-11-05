@@ -46,8 +46,8 @@ public sealed class CourseView(PrimitiveBatch batch)
     public Pickable? Selected { get; set; }
     public Pickable? Hovered { get; private set; }
 
-    /// <summary>Set by the app: editor dummy shape of an actor type (<c>Cube_c</c>, <c>Cube_t</c>, <c>Sphere</c>...), if known.</summary>
-    public Func<string, string?>? DummyShape { get; set; }
+    /// <summary>Set by the app: an area actor's volume (physics box, or a guess from the editor shape).</summary>
+    public Func<string, AreaShape>? AreaShapeOf { get; set; }
     /// <summary>Set by the app: whether an object's model is currently drawn (its 2D marker can then be hidden).</summary>
     public Func<CourseObject, bool>? HasModel { get; set; }
 
@@ -312,32 +312,24 @@ public sealed class CourseView(PrimitiveBatch batch)
 
     // --- areas ---
 
-    /// <summary>
-    /// The area's box in local units: X/Z span ±0.5 (times Scale); Y spans 0..1 for <c>Cube_t</c>-style editor shapes and
-    /// ±0.5 for centred ones (<c>*_c</c>, plain <c>Cube</c>/<c>Sphere</c>). The 1-unit base size and the bottom origin
-    /// of <c>Cube_t</c> are inferred from the data (rescue areas have the lap path 0.3-0.7 of their height above the
-    /// origin), not traced in code. Plain <c>Cube</c> being centred is a guess.
-    /// </summary>
-    private (float Y0, float Y1, bool Round) AreaShape(CourseObject o)
-    {
-        var shape = DummyShape?.Invoke(o.Type) ?? o.Primitive;
-        var round = shape.StartsWith("Sphere", StringComparison.Ordinal) || shape.StartsWith("Cylinder", StringComparison.Ordinal) || shape == "Capsule";
-        var centred = shape.EndsWith("_c", StringComparison.Ordinal) || shape is "Cube" or "Sphere" or "Box";
-        return centred ? (-0.5f, 0.5f, round) : (0f, 1f, round);
-    }
+    /// <summary>The area's local volume (see <see cref="AreaShape"/>), scaled by the actor's Scale.</summary>
+    private AreaShape ShapeOf(CourseObject o) => AreaShapeOf?.Invoke(o.Type) ?? AreaShape.FromDummy(null);
 
     private static Matrix4x4 AreaMatrix(CourseObject o) => Matrix4x4.CreateScale(o.Actor.Scale) * o.Rotation * Matrix4x4.CreateTranslation(o.Position);
 
     private void AreaBox(CourseObject o, uint col, bool highlight = false)
     {
-        var (y0, y1, round) = AreaShape(o);
+        var shape = ShapeOf(o);
+        var (y0, y1, round) = (shape.Min.Y, shape.Max.Y, shape.Round);
+        var c = (shape.Min + shape.Max) / 2;
+        var h = (shape.Max - shape.Min) / 2;
         var m = AreaMatrix(o);
         var n = round ? 20 : 4;
         Vector3 P(int i, float y)
         {
             var a = round ? i * MathF.Tau / n : i * MathF.PI / 2 + MathF.PI / 4;
-            var r = round ? 0.5f : MathF.Sqrt(0.5f);
-            return Vector3.Transform(new Vector3(MathF.Cos(a) * r, y, MathF.Sin(a) * r), m);
+            var r = round ? 1f : MathF.Sqrt(2f);
+            return Vector3.Transform(new Vector3(c.X + MathF.Cos(a) * r * h.X, y, c.Z + MathF.Sin(a) * r * h.Z), m);
         }
         var fill = Palette.WithAlpha(col, highlight ? (byte)0x30 : (byte)0x1C);
         var edge = Palette.WithAlpha(col, 0xE0);
@@ -354,12 +346,15 @@ public sealed class CourseView(PrimitiveBatch batch)
     }
 
     /// <summary>Top-down outline (convex polygon) of an area at its origin height.</summary>
-    public static Vector3[] AreaFootprint(CourseObject o)
+    public Vector3[] AreaFootprint(CourseObject o)
     {
+        var shape = ShapeOf(o);
+        var c = (shape.Min + shape.Max) / 2;
+        var h = (shape.Max - shape.Min) / 2;
         var m = o.Rotation;
-        var s = o.Actor.Scale / 2;
-        Vector3 P(float x, float z) => o.Position + Vector3.TransformNormal(new Vector3(x * s.X, 0, z * s.Z), m);
-        if (o.Primitive is "Sphere" or "Cylinder" or "Capsule")
+        var s = o.Actor.Scale;
+        Vector3 P(float x, float z) => o.Position + Vector3.TransformNormal(new Vector3((c.X + x * h.X) * s.X, 0, (c.Z + z * h.Z) * s.Z), m);
+        if (shape.Round)
             return Enumerable.Range(0, 24).Select(i => P(MathF.Cos(i * MathF.Tau / 24), MathF.Sin(i * MathF.Tau / 24))).ToArray();
         return [P(-1, -1), P(1, -1), P(1, 1), P(-1, 1)];
     }
@@ -370,9 +365,9 @@ public sealed class CourseView(PrimitiveBatch batch)
         if (!Matrix4x4.Invert(AreaMatrix(o), out var inv)) return null;
         var lo = Vector3.Transform(origin, inv);
         var ld = Vector3.TransformNormal(dir, inv);
-        var (y0, y1, _) = AreaShape(o);
-        Span<float> mn = [-0.5f, y0, -0.5f];
-        Span<float> mx = [0.5f, y1, 0.5f];
+        var shape = ShapeOf(o);
+        Span<float> mn = [shape.Min.X, shape.Min.Y, shape.Min.Z];
+        Span<float> mx = [shape.Max.X, shape.Max.Y, shape.Max.Z];
         Span<float> oo = [lo.X, lo.Y, lo.Z];
         Span<float> dd = [ld.X, ld.Y, ld.Z];
         float t0 = 0, t1 = float.MaxValue;
