@@ -37,6 +37,7 @@ public sealed partial class SatelliteApp : IDisposable
     private readonly OrbitCamera _orbit = new();
     private bool _use3D, _panning;
     private ModelLibrary? _models;
+    private TerrainRenderer? _terrain;
     private IViewCamera ActiveCamera => _use3D ? _orbit : _camera;
     private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
     private int _idleFrames;
@@ -69,6 +70,8 @@ public sealed partial class SatelliteApp : IDisposable
     {
         _models?.Dispose();
         _models = null;
+        _terrain?.Dispose();
+        _terrain = null;
         _batch?.Dispose();
         _imgui?.Dispose();
         _batch = null!;
@@ -95,6 +98,7 @@ public sealed partial class SatelliteApp : IDisposable
             _view.HasModel = o => _models?.Get(o.Type) is not null;
             var resolver = _models.Resolver;
             _view.AreaShapeOf = resolver.AreaShapeOf;
+            if (TerrainRenderer.Exists(_fs)) _terrain = new TerrainRenderer(_gl, _fs);
         }
         _use3D = _options.View3D;
         if (_options.NoModels) _view.Layers.Models = false;
@@ -326,8 +330,11 @@ public sealed partial class SatelliteApp : IDisposable
         _lastMouse = pos;
     }
 
+    private double _frameMs;
+
     private void OnRender(double delta)
     {
+        _frameMs = _frameMs <= 0 ? delta * 1000 : _frameMs * 0.95 + delta * 1000 * 0.05;
         // Follow the display scale when the window moves to another monitor (unless fixed with --ui-scale).
         if (_options.UiScale is null && !_options.IsScreenshot && _frame % 15 == 0 && SystemUiScale() is var s && MathF.Abs(s - _uiScale) > 0.01f)
         {
@@ -350,7 +357,9 @@ public sealed partial class SatelliteApp : IDisposable
         // GL viewport covers the area between the side panels (GL's origin is bottom-left).
         var cam = ActiveCamera;
         _gl.Viewport((int)cam.ViewportPos.X, 0, (uint)cam.ViewportSize.X, (uint)cam.ViewportSize.Y);
+        DrawTerrain(cam);
         DrawModels(cam);
+        if (_terrain is not null && _view.Course is not null && _view.Layers.Terrain && _view.Layers.Water) _terrain.DrawWater(cam.ViewProjection);
         _view.Draw(cam);
         _gl.Viewport(0, 0, (uint)fb.X, (uint)fb.Y);
 
@@ -385,7 +394,8 @@ public sealed partial class SatelliteApp : IDisposable
         else if (_options.IsScreenshot && _frame >= 4)
         {
             // Wait for models to finish loading (bounded), then a few settled frames.
-            _idleFrames = (_models?.Pending ?? 0) == 0 ? _idleFrames + 1 : 0;
+            var terrainPending = _terrain is not null && _view.Layers.Terrain ? _terrain.Pending + (_terrain.IsAvailable ? 0 : 1) : 0;
+            _idleFrames = (_models?.Pending ?? 0) + terrainPending == 0 ? _idleFrames + 1 : 0;
             if (_idleFrames >= 3 || _clock.Elapsed.TotalSeconds > 300)
             {
                 var win = _window.FramebufferSize;
@@ -396,10 +406,19 @@ public sealed partial class SatelliteApp : IDisposable
         }
     }
 
+    private static readonly Vector3 LightDir = new(-0.35f, -1f, -0.25f);
+
+    private void DrawTerrain(IViewCamera cam)
+    {
+        if (_terrain is null || _view.Course is null || !_view.Layers.Terrain) return;
+        _terrain.Update(cam, _options.IsScreenshot ? 200 : 6);
+        _terrain.Draw(cam.ViewProjection, LightDir);
+    }
+
     private void DrawModels(IViewCamera cam)
     {
         if (_models is null || _view.Course is not { } c || !_view.Layers.Models) return;
-        _models.Begin(cam.ViewProjection, new Vector3(-0.35f, -1f, -0.25f));
+        _models.Begin(cam.ViewProjection, LightDir);
         foreach (var o in c.Objects)
         {
             if (!_view.ModelVisible(o) || _models.Get(o.Type) is not { } m) continue;
@@ -485,9 +504,11 @@ public sealed partial class SatelliteApp : IDisposable
     private static float HeaderHeight => ImGui.GetTextLineHeightWithSpacing() * 2 + 12;
     private static Vector2 HeaderLine(int i) => new(16, 6 + i * ImGui.GetTextLineHeightWithSpacing());
 
-    private string ModelStatus() =>
-        _models is null || !_view.Layers.Models ? "" :
-        $"   models {_models.LoadedModels}, textures {_models.TextureCount}" + (_models.Pending > 0 ? $", loading {_models.Pending}" : "");
+    private string ModelStatus() => $"   {_frameMs:0.0} ms/frame" +
+        (_models is null || !_view.Layers.Models ? "" :
+            $"   models {_models.LoadedModels}, textures {_models.TextureCount}" + (_models.Pending > 0 ? $", loading {_models.Pending}" : "")) +
+        (_terrain is null || !_view.Layers.Terrain ? "" :
+            $"   terrain {_terrain.DrawnTiles} drawn / {_terrain.LoadedTiles} cached" + (_terrain.Pending > 0 ? $", loading {_terrain.Pending}" : ""));
 
     private void DrawHoverTooltip()
     {
@@ -625,6 +646,11 @@ public sealed partial class SatelliteApp : IDisposable
         ImGui.TextDisabled("Models");
         Toggle("Show models", ref L.Models);
         Toggle("Course geometry (Stage models)", ref L.StageModels);
+        if (_terrain is not null)
+        {
+            Toggle("Terrain", ref L.Terrain);
+            Toggle("Water", ref L.Water);
+        }
         Toggle("2D markers on modelled objects", ref L.MarkersOnModels);
         if (_models is { Errors.Count: > 0 } && ImGui.TreeNode($"Model errors ({_models.Errors.Count})"))
         {

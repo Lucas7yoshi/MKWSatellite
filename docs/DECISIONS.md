@@ -72,3 +72,11 @@ whole values replaced, so undo restores references), then only the race layer is
 `<mod folder>/Banc/<scene>` (zstd, power-of-two padded) and refuses any folder inside a game dump (a layer with
 `System/Resource`). Adding the mod folder as the last `romfs` layer loads the edits back. The resource size table is
 not rewritten; growth past the original padded size is reported instead.
+
+### D18. Terrain streamed by camera, shaded from the game's own maps (2026-11-05)
+The user asked for terrain that does not load the whole map. Tiles are chosen per frame from the TSCB quadtree by
+screen-space cell size and frustum, loaded on worker threads and kept in a bounded GPU cache (320 tiles). Shading
+uses only what the data defines and what was checked against it: `albedo_far` for levels 0-4, material array ×
+`color_mul2` below (matches `albedo_far`, formats/terrain.md), height-map normals and the models' simple light. Normal
+maps, baked lighting and the game's terrain shader graph were left out: they change the look, not what runners read
+from the map.
