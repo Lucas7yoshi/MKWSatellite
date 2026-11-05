@@ -117,6 +117,8 @@ public sealed class ModelLibrary : IDisposable
     public int TextureCount => _gpuTextures.Count;
     public List<string> Errors { get; } = [];
 
+    public ActorModelResolver Resolver => _resolver;
+
     /// <summary>The romfs model path an actor type resolved to, once known.</summary>
     public string? ModelPathOf(string actorType) => _typeToPath.GetValueOrDefault(actorType);
 

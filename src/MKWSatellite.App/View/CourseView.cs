@@ -20,17 +20,20 @@ public sealed class ViewLayers
     public bool RespawnAreas = true, RecoveryPoints = true, ValleyAreas = true, HighSpeedAreas = true, BoostAreas = true, RuleAreas = true, LinkAreas = false, OtherAreas = false;
     public bool Hazards = true, Fences = false, Audience = false, Scenery = false;
     public bool LayerRace = true, LayerWorld = true, LayerCourseFix = true;
+    /// <summary>Colour the lap path by height instead of a flat colour.</summary>
+    public bool HeightColors = true;
     /// <summary>Draw 3D models for visible objects; course geometry (<c>Stage_*</c> actors) has its own toggle.</summary>
     public bool Models = true, StageModels = true;
     /// <summary>Draw the 2D markers for objects that are shown as models.</summary>
     public bool MarkersOnModels = true;
-    /// <summary>Colour the lap path by height instead of a flat colour.</summary>
-    public bool HeightColors = true;
+    /// <summary>Multiplier for line widths and marker sizes.</summary>
+    public float LineScale = 1f;
 }
 
 /// <summary>
-/// Builds and draws the top-down 2D course view: paths, gates, areas and object markers.
-/// Markers have a minimum on-screen size, so geometry is rebuilt whenever the zoom changes.
+/// Builds and draws the course overlay: paths, gates, areas and object markers, for the top-down camera (flat, in X/Z)
+/// or the 3D camera (lines are camera-facing ribbons, gates are upright rectangles, areas are boxes). Sizes are given
+/// in screen pixels, so geometry is rebuilt when the camera changes.
 /// </summary>
 public sealed class CourseView(PrimitiveBatch batch)
 {
@@ -39,10 +42,19 @@ public sealed class CourseView(PrimitiveBatch batch)
     public Pickable? Selected { get; set; }
     public Pickable? Hovered { get; private set; }
 
-    private float _builtZoom = -1;
+    /// <summary>Set by the app: editor dummy shape of an actor type (<c>Cube_c</c>, <c>Cube_t</c>, <c>Sphere</c>...), if known.</summary>
+    public Func<string, string?>? DummyShape { get; set; }
+    /// <summary>Set by the app: whether an object's model is currently drawn (its 2D marker can then be hidden).</summary>
+    public Func<CourseObject, bool>? HasModel { get; set; }
+
+    private Matrix4x4 _builtView;
     private bool _dirty = true;
     private float _minY, _maxY;
-    private readonly List<(Pickable Item, float Radius)> _pickables = [];
+    private readonly List<(Pickable Item, float RadiusPx)> _pickables = [];
+
+    // Camera used for the current build.
+    private IViewCamera _cam = null!;
+    private OrbitCamera? _orbit;
 
     public void SetCourse(CourseScene course, TopDownCamera camera)
     {
@@ -68,14 +80,16 @@ public sealed class CourseView(PrimitiveBatch batch)
     public void Draw(IViewCamera camera)
     {
         if (Course is null) return;
-        var zoom = 1 / camera.UnitsPerPixel;
-        if (_dirty || MathF.Abs(zoom - _builtZoom) > _builtZoom * 0.02f)
+        var vp = camera.ViewProjection;
+        if (_dirty || vp != _builtView || !ReferenceEquals(camera, _cam))
         {
-            Build(camera.UnitsPerPixel);
-            _builtZoom = zoom;
+            _cam = camera;
+            _orbit = camera as OrbitCamera;
+            Build();
+            _builtView = vp;
             _dirty = false;
         }
-        batch.Draw(camera.ViewProjection);
+        batch.Draw(vp);
     }
 
     /// <summary>Course geometry: the actors that carry a course's stage model (e.g. <c>Stage_Cinema_A_00</c>).</summary>
@@ -84,9 +98,6 @@ public sealed class CourseView(PrimitiveBatch batch)
     /// <summary>Whether an object's model should be drawn (areas and system objects have none).</summary>
     public bool ModelVisible(CourseObject o) =>
         Layers.Models && LayerOn(o.Layer) && !o.IsArea && (IsStageModel(o) ? Layers.StageModels : CategoryOn(o.Category));
-
-    /// <summary>Set by the app: types whose model is currently drawn (their 2D marker can then be hidden).</summary>
-    public Func<CourseObject, bool>? HasModel { get; set; }
 
     private bool LayerOn(CourseLayer l) => l switch
     {
@@ -117,19 +128,30 @@ public sealed class CourseView(PrimitiveBatch batch)
 
     public bool IsVisible(CourseObject o) => LayerOn(o.Layer) && CategoryOn(o.Category);
 
-    private void Build(float upp)
+    /// <summary>World units per screen pixel at a point (constant top-down; grows with distance in 3D), times the line scale.</summary>
+    private float Upp(Vector3 p) =>
+        (_orbit is { } o
+            ? MathF.Max(Vector3.Distance(o.Eye, p), 0.5f) * 2 * MathF.Tan(o.FieldOfView / 2) / MathF.Max(1, o.ViewportSize.Y)
+            : _cam.UnitsPerPixel) * Layers.LineScale;
+
+    private void Build()
     {
         var c = Course!;
         batch.Clear();
         _pickables.Clear();
+        var is3D = _orbit is not null;
 
-        // 1. Areas (filled, underneath everything)
+        // 1. Areas: filled footprint top-down, boxes in 3D.
         foreach (var o in c.Objects.Where(o => o.IsArea && IsVisible(o)))
         {
-            var outline = AreaFootprint(o);
             var col = Palette.ForCategory(o.Category);
-            for (var i = 1; i + 1 < outline.Length; i++) batch.Triangle(outline[0], outline[i], outline[i + 1], Palette.WithAlpha(col, 0x38));
-            for (var i = 0; i < outline.Length; i++) ThickLine(outline[i], outline[(i + 1) % outline.Length], 1.2f * upp, Palette.WithAlpha(col, 0xC0));
+            if (is3D) AreaBox(o, col);
+            else
+            {
+                var outline = AreaFootprint(o);
+                for (var i = 1; i + 1 < outline.Length; i++) batch.Triangle(outline[0], outline[i], outline[i + 1], Palette.WithAlpha(col, 0x38));
+                for (var i = 0; i < outline.Length; i++) Line(outline[i], outline[(i + 1) % outline.Length], 1.5f, Palette.WithAlpha(col, 0xE0));
+            }
             _pickables.Add((new PickedObject(o), 0));
         }
 
@@ -140,97 +162,140 @@ public sealed class CourseView(PrimitiveBatch batch)
             var isRoute = r.Kind == "RoutePathGraph";
             if (isLap ? !Layers.LapPath : isRoute ? !Layers.AiRoutes : !Layers.OtherRails) continue;
             if (!isLap && !isRoute && !Palette.ShowRail(r.Kind)) continue;
-            var width = (isLap ? 3.5f : isRoute ? 1.2f : 2f) * upp;
+            var px = isLap ? 4f : isRoute ? 2f : 2.5f;
+            var routeColor = isRoute ? Palette.ForRoute(r.Rail.Points.Count > 0 ? r.Rail.Points[0].Dynamic : null) : 0;
             var pts = r.Rail.Points;
-            void Seg(int i, Vector3 a, Vector3 b)
+            void Seg(Vector3 a, Vector3 b)
             {
-                var col = isLap && Layers.HeightColors ? Palette.Height((a.Y + b.Y) / 2, _minY, _maxY) : Palette.ForRail(r.Kind);
-                ThickLine(a, b, width, col);
+                var col = isLap ? (Layers.HeightColors ? Palette.Height((a.Y + b.Y) / 2, _minY, _maxY) : Palette.ForRail(r.Kind))
+                    : isRoute ? routeColor : Palette.ForRail(r.Kind);
+                Line(a, b, px, col);
+                if (isRoute && Vector3.Distance(a, b) > 30 * Upp((a + b) / 2)) Chevron(a, b, col); // direction of travel
             }
-            for (var i = 1; i < pts.Count; i++) Seg(i, pts[i - 1].Translation, pts[i].Translation);
-            if (r.Rail.IsClosed && pts.Count > 2) Seg(0, pts[^1].Translation, pts[0].Translation);
+            for (var i = 1; i < pts.Count; i++) Seg(pts[i - 1].Translation, pts[i].Translation);
+            if (r.Rail.IsClosed && pts.Count > 2) Seg(pts[^1].Translation, pts[0].Translation);
             foreach (var p in pts)
                 foreach (var dst in p.LinkTargets)
                     if (c.PointsByHash.TryGetValue(dst, out var q))
-                        Seg(-1, p.Translation, q.Translation);
+                        Seg(p.Translation, q.Translation);
             if (!isLap)
-                for (var i = 0; i < pts.Count; i++) _pickables.Add((new PickedRailPoint(r, i), 4 * upp));
+                for (var i = 0; i < pts.Count; i++) _pickables.Add((new PickedRailPoint(r, i), 4));
         }
 
-        // 3. Lap gates (vertical rectangles: from above they are a line between the bottom corners)
+        // 3. Lap gates: a line between the bottom corners top-down, the full upright rectangle in 3D.
         if (Layers.LapPath)
             foreach (var lp in c.LapPoints)
             {
                 var isCp = lp.CheckPoint is not null || lp.IsStart || lp.IsGoal || lp.IsLapCheck;
-                if (isCp ? !Layers.CheckpointGates : !Layers.AllGates)
-                {
-                    _pickables.Add((new PickedLapPoint(lp), 5 * upp));
-                    continue;
-                }
+                _pickables.Add((new PickedLapPoint(lp), 6));
+                if (isCp ? !Layers.CheckpointGates : !Layers.AllGates) continue;
                 var g = lp.GateCorners();
                 var col = lp.IsStart || lp.IsGoal ? Palette.StartGate : lp.IsLapCheck ? Palette.LapCheckGate : isCp ? Palette.CheckpointGate : Palette.Gate;
-                ThickLine(g[0], g[1], (isCp ? 2.5f : 1.2f) * upp, col);
-                Disc(lp.Position, 2.5f * upp, col, 8);
-                _pickables.Add((new PickedLapPoint(lp), 6 * upp));
+                if (is3D)
+                {
+                    batch.Quad(g[0], g[1], g[2], g[3], Palette.WithAlpha(col, isCp ? (byte)0x50 : (byte)0x28));
+                    for (var i = 0; i < 4; i++) Line(g[i], g[(i + 1) % 4], isCp ? 3f : 1.5f, col);
+                }
+                else
+                {
+                    Line(g[0], g[1], isCp ? 5f : 2.5f, col);
+                    Disc(lp.Position, 3f * Upp(lp.Position), col, 8);
+                }
             }
 
         // 4. Object markers
         foreach (var o in c.Objects.Where(o => !o.IsArea && IsVisible(o)))
         {
-            if (!Layers.MarkersOnModels && ModelVisible(o) && HasModel?.Invoke(o) == true)
-            {
-                _pickables.Add((new PickedObject(o), 6 * upp));
-                continue;
-            }
+            _pickables.Add((new PickedObject(o), 6));
+            if (!Layers.MarkersOnModels && ModelVisible(o) && HasModel?.Invoke(o) == true) continue;
             var col = Palette.ForCategory(o.Category);
             var p = o.Position;
             var fwd = Vector3.TransformNormal(Vector3.UnitZ, o.Rotation);
-            var px = MathF.Max(upp, 0.0001f);
+            var u = Upp(p);
             switch (o.Category)
             {
                 case ObjectCategory.ItemBox:
-                    Square(p, MathF.Max(2.5f, 5 * px), col);
+                    Square(p, MathF.Max(2.5f, 5 * u), col);
                     break;
                 case ObjectCategory.Coin:
-                    Disc(p, MathF.Max(0.8f, 2.5f * px), col, 8);
+                    Disc(p, MathF.Max(0.8f, 2.5f * u), col, 8);
                     break;
                 case ObjectCategory.BoostRing:
                     // Ring facing is not consistent with local +Z in the data, so no arrow.
-                    Ring(p, MathF.Max(4f, 6 * px), 2 * px, col);
+                    RingMarker(p, MathF.Max(4f, 6 * u), 2, col);
                     break;
                 case ObjectCategory.DashPanel or ObjectCategory.GlideRamp or ObjectCategory.JumpRamp:
-                    Arrow(p, fwd, MathF.Max(6f, 11 * px), col);
+                    Arrow(p, fwd, MathF.Max(6f, 11 * u), col);
                     break;
                 case ObjectCategory.StartPosition or ObjectCategory.LapGate:
-                    Arrow(p, fwd, MathF.Max(3f, 7 * px), col);
+                    Arrow(p, fwd, MathF.Max(3f, 7 * u), col);
                     break;
                 case ObjectCategory.RecoveryPoint:
-                    Ring(p, MathF.Max(3f, 6 * px), 2 * px, col);
-                    Disc(p, MathF.Max(1f, 2 * px), col, 8);
+                    RingMarker(p, MathF.Max(3f, 6 * u), 2, col);
+                    Disc(p, MathF.Max(1f, 2 * u), col, 8);
                     break;
                 case ObjectCategory.Hazard:
-                    var s = MathF.Max(3f, 5 * px);
-                    ThickLine(p + new Vector3(-s, 0, -s), p + new Vector3(s, 0, s), 1.5f * px, col);
-                    ThickLine(p + new Vector3(-s, 0, s), p + new Vector3(s, 0, -s), 1.5f * px, col);
+                    var s = MathF.Max(3f, 5 * u);
+                    Line(p + new Vector3(-s, 0, -s), p + new Vector3(s, 0, s), 1.5f, col);
+                    Line(p + new Vector3(-s, 0, s), p + new Vector3(s, 0, -s), 1.5f, col);
                     break;
                 default:
-                    Disc(p, MathF.Max(0.6f, 1.8f * px), col, 6);
+                    Disc(p, MathF.Max(0.6f, 1.8f * u), col, 6);
                     break;
             }
-            _pickables.Add((new PickedObject(o), 6 * px));
         }
 
         // 5. Selection highlight
-        if (Selected is not null) Ring(Selected.Position, 9 * upp, 1.5f * upp, Palette.Selection);
+        if (Selected is PickedObject { Object.IsArea: true } sa && is3D) AreaBox(sa.Object, Palette.Selection, highlight: true);
+        else if (Selected is not null) RingMarker(Selected.Position, 9 * Upp(Selected.Position), 2, Palette.Selection);
 
         batch.Upload();
     }
 
+    // --- areas ---
+
     /// <summary>
-    /// Top-down outline (convex polygon) of an area: a unit cube, or for Sphere/Cylinder primitives a unit-diameter
-    /// circle, scaled by Scale, rotated, at Translate. The 1-unit base size is inferred from the data (e.g. Rainbow's
-    /// delete areas have scales in the hundreds to thousands), not verified in code.
+    /// The area's box in local units: X/Z span ±0.5 (times Scale); Y spans 0..1 for <c>Cube_t</c>-style editor shapes and
+    /// ±0.5 for centred ones (<c>*_c</c>, plain <c>Cube</c>/<c>Sphere</c>). The 1-unit base size and the bottom origin
+    /// of <c>Cube_t</c> are inferred from the data (rescue areas have the lap path 0.3-0.7 of their height above the
+    /// origin), not traced in code. Plain <c>Cube</c> being centred is a guess.
     /// </summary>
+    private (float Y0, float Y1, bool Round) AreaShape(CourseObject o)
+    {
+        var shape = DummyShape?.Invoke(o.Type) ?? o.Primitive;
+        var round = shape.StartsWith("Sphere", StringComparison.Ordinal) || shape.StartsWith("Cylinder", StringComparison.Ordinal) || shape == "Capsule";
+        var centred = shape.EndsWith("_c", StringComparison.Ordinal) || shape is "Cube" or "Sphere" or "Box";
+        return centred ? (-0.5f, 0.5f, round) : (0f, 1f, round);
+    }
+
+    private static Matrix4x4 AreaMatrix(CourseObject o) => Matrix4x4.CreateScale(o.Actor.Scale) * o.Rotation * Matrix4x4.CreateTranslation(o.Position);
+
+    private void AreaBox(CourseObject o, uint col, bool highlight = false)
+    {
+        var (y0, y1, round) = AreaShape(o);
+        var m = AreaMatrix(o);
+        var n = round ? 20 : 4;
+        Vector3 P(int i, float y)
+        {
+            var a = round ? i * MathF.Tau / n : i * MathF.PI / 2 + MathF.PI / 4;
+            var r = round ? 0.5f : MathF.Sqrt(0.5f);
+            return Vector3.Transform(new Vector3(MathF.Cos(a) * r, y, MathF.Sin(a) * r), m);
+        }
+        var fill = Palette.WithAlpha(col, highlight ? (byte)0x30 : (byte)0x1C);
+        var edge = Palette.WithAlpha(col, 0xE0);
+        var w = highlight ? 3f : 1.5f;
+        for (var i = 0; i < n; i++)
+        {
+            var j = (i + 1) % n;
+            batch.Quad(P(i, y0), P(j, y0), P(j, y1), P(i, y1), fill);
+            Line(P(i, y0), P(j, y0), w, edge);
+            Line(P(i, y1), P(j, y1), w, edge);
+            if (!round || i % 5 == 0) Line(P(i, y0), P(i, y1), w, edge);
+        }
+        for (var i = 1; i + 1 < n; i++) batch.Triangle(P(0, y1), P(i, y1), P(i + 1, y1), fill);
+    }
+
+    /// <summary>Top-down outline (convex polygon) of an area at its origin height.</summary>
     public static Vector3[] AreaFootprint(CourseObject o)
     {
         var m = o.Rotation;
@@ -241,15 +306,68 @@ public sealed class CourseView(PrimitiveBatch batch)
         return [P(-1, -1), P(1, -1), P(1, 1), P(-1, 1)];
     }
 
-    // --- primitives (all flat in X/Z) ---
-
-    private void ThickLine(Vector3 a, Vector3 b, float width, uint color)
+    /// <summary>Ray parameter of the hit on an area's box, or null if missed (slab test in the box's local space).</summary>
+    private float? RayHitArea(CourseObject o, Vector3 origin, Vector3 dir)
     {
-        var d = new Vector2(b.X - a.X, b.Z - a.Z);
-        if (d.LengthSquared() < 1e-8f) return;
-        var n = Vector2.Normalize(new Vector2(-d.Y, d.X)) * (width / 2);
-        var o = new Vector3(n.X, 0, n.Y);
-        batch.Quad(a - o, b - o, b + o, a + o, color);
+        if (!Matrix4x4.Invert(AreaMatrix(o), out var inv)) return null;
+        var lo = Vector3.Transform(origin, inv);
+        var ld = Vector3.TransformNormal(dir, inv);
+        var (y0, y1, _) = AreaShape(o);
+        Span<float> mn = [-0.5f, y0, -0.5f];
+        Span<float> mx = [0.5f, y1, 0.5f];
+        Span<float> oo = [lo.X, lo.Y, lo.Z];
+        Span<float> dd = [ld.X, ld.Y, ld.Z];
+        float t0 = 0, t1 = float.MaxValue;
+        for (var k = 0; k < 3; k++)
+        {
+            if (MathF.Abs(dd[k]) < 1e-12f) { if (oo[k] < mn[k] || oo[k] > mx[k]) return null; continue; }
+            var a = (mn[k] - oo[k]) / dd[k];
+            var b = (mx[k] - oo[k]) / dd[k];
+            if (a > b) (a, b) = (b, a);
+            t0 = MathF.Max(t0, a);
+            t1 = MathF.Min(t1, b);
+            if (t0 > t1) return null;
+        }
+        return t0; // same parameter as the world ray, since the transform is affine
+    }
+
+    // --- primitives ---
+
+    /// <summary>A line <paramref name="px"/> screen pixels wide: flat in X/Z top-down, a camera-facing ribbon in 3D.</summary>
+    private void Line(Vector3 a, Vector3 b, float px, uint color)
+    {
+        if (_orbit is { } o)
+        {
+            var d = b - a;
+            if (d.LengthSquared() < 1e-8f) return;
+            var mid = (a + b) / 2;
+            var side = Vector3.Cross(d, o.Eye - mid);
+            if (side.LengthSquared() < 1e-12f) return;
+            side = Vector3.Normalize(side);
+            var ha = side * (px * Upp(a) / 2);
+            var hb = side * (px * Upp(b) / 2);
+            batch.Quad(a - ha, b - hb, b + hb, a + ha, color);
+            return;
+        }
+        var d2 = new Vector2(b.X - a.X, b.Z - a.Z);
+        if (d2.LengthSquared() < 1e-8f) return;
+        var n = Vector2.Normalize(new Vector2(-d2.Y, d2.X)) * (px * Upp(a) / 2);
+        var off = new Vector3(n.X, 0, n.Y);
+        batch.Quad(a - off, b - off, b + off, a + off, color);
+    }
+
+    /// <summary>Small arrowhead at the middle of a segment, pointing from a to b.</summary>
+    private void Chevron(Vector3 a, Vector3 b, uint color)
+    {
+        var mid = (a + b) / 2;
+        var u = Upp(mid);
+        var dir = Vector3.Normalize(b - a);
+        var side = _orbit is { } o ? Vector3.Cross(dir, o.Eye - mid) : Vector3.Cross(dir, Vector3.UnitY);
+        if (side.LengthSquared() < 1e-12f) return;
+        side = Vector3.Normalize(side);
+        var len = 8 * u;
+        Line(mid + dir * len / 2, mid - dir * len / 2 + side * len * 0.6f, 2f, color);
+        Line(mid + dir * len / 2, mid - dir * len / 2 - side * len * 0.6f, 2f, color);
     }
 
     private void Disc(Vector3 c, float r, uint color, int segments)
@@ -262,14 +380,14 @@ public sealed class CourseView(PrimitiveBatch batch)
         }
     }
 
-    private void Ring(Vector3 c, float r, float width, uint color)
+    private void RingMarker(Vector3 c, float r, float px, uint color)
     {
         const int n = 24;
         for (var i = 0; i < n; i++)
         {
             var a0 = i * MathF.Tau / n;
             var a1 = (i + 1) * MathF.Tau / n;
-            ThickLine(c + new Vector3(MathF.Cos(a0) * r, 0, MathF.Sin(a0) * r), c + new Vector3(MathF.Cos(a1) * r, 0, MathF.Sin(a1) * r), width, color);
+            Line(c + new Vector3(MathF.Cos(a0) * r, 0, MathF.Sin(a0) * r), c + new Vector3(MathF.Cos(a1) * r, 0, MathF.Sin(a1) * r), px, color);
         }
     }
 
@@ -293,25 +411,26 @@ public sealed class CourseView(PrimitiveBatch batch)
 
     public Pickable? PickAt(IViewCamera view, Vector2 screen)
     {
-        if (view is not TopDownCamera camera) return PickOnScreen(view, screen);
+        if (view is OrbitCamera orbit) return PickOnScreen(orbit, screen);
+        var camera = (TopDownCamera)view;
         var world = camera.ScreenToWorld(screen);
         Pickable? best = null;
         var bestD = float.MaxValue;
-        foreach (var (item, radius) in _pickables)
+        var limit = 8 * camera.UnitsPerPixel;
+        foreach (var (item, radiusPx) in _pickables)
         {
             float d;
             if (item is PickedObject { Object.IsArea: true } a)
-                d = PointInQuad(world, AreaFootprint(a.Object)) ? 0.5f * (8 * camera.UnitsPerPixel) : float.MaxValue; // areas lose to point objects
+                d = PointInQuad(world, AreaFootprint(a.Object)) ? 0.5f * limit : float.MaxValue; // areas lose to point objects
             else
-                d = Vector2.Distance(world, new Vector2(item.Position.X, item.Position.Z)) - radius;
-            var limit = 8 * camera.UnitsPerPixel;
+                d = Vector2.Distance(world, new Vector2(item.Position.X, item.Position.Z)) - radiusPx * camera.UnitsPerPixel;
             if (d < limit && d < bestD) { best = item; bestD = d; }
         }
         return best;
     }
 
-    /// <summary>Perspective picking: nearest projected point within 10 px (areas are not pickable in 3D yet).</summary>
-    private Pickable? PickOnScreen(IViewCamera camera, Vector2 screen)
+    /// <summary>3D picking: the nearest projected point within 10 px wins; otherwise the nearest area box under the cursor.</summary>
+    private Pickable? PickOnScreen(OrbitCamera camera, Vector2 screen)
     {
         Pickable? best = null;
         var bestD = 10f;
@@ -321,6 +440,15 @@ public sealed class CourseView(PrimitiveBatch batch)
             if (camera.Project(item.Position) is not { } p) continue;
             var d = Vector2.Distance(p, screen);
             if (d < bestD) { best = item; bestD = d; }
+        }
+        if (best is not null) return best;
+
+        var (origin, dir) = camera.Ray(screen);
+        var bestT = float.MaxValue;
+        foreach (var (item, _) in _pickables)
+        {
+            if (item is not PickedObject { Object.IsArea: true } a) continue;
+            if (RayHitArea(a.Object, origin, dir) is { } t && t < bestT) { bestT = t; best = item; }
         }
         return best;
     }
@@ -348,7 +476,10 @@ public sealed class CourseView(PrimitiveBatch batch)
             string? text = lp.IsStart ? "START" : lp.IsGoal ? "GOAL" : lp.CheckPoint is { } cp ? cp.ToString("0") : null;
             if (lp.IsLapCheck) text = (text is null ? "" : text + " ") + "LAP";
             if (text is null) continue;
-            if (camera.Project(lp.Position) is not { } screen) continue;
+            // In 3D, label the top of the gate so it sits above the road.
+            var g = lp.GateCorners();
+            var anchor = camera is OrbitCamera ? (g[2] + g[3]) / 2 : lp.Position;
+            if (camera.Project(anchor) is not { } screen) continue;
             var s = screen + new Vector2(6, -16);
             dl.AddText(s + new Vector2(1, 1), 0xFF000000, text);
             dl.AddText(s, 0xFFFFFFFF, text);

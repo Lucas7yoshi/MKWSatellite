@@ -54,6 +54,21 @@ public sealed class OrbitCamera : IViewCamera
         return ViewportPos + new Vector2((ndc.X + 1) / 2 * ViewportSize.X, (1 - ndc.Y) / 2 * ViewportSize.Y);
     }
 
+    /// <summary>World-space ray (origin on the near plane, unit direction) through a window position.</summary>
+    public (Vector3 Origin, Vector3 Direction) Ray(Vector2 screen)
+    {
+        Matrix4x4.Invert(ViewProjection, out var inv);
+        var x = (screen.X - ViewportPos.X) / ViewportSize.X * 2 - 1;
+        var y = 1 - (screen.Y - ViewportPos.Y) / ViewportSize.Y * 2;
+        Vector3 Unproject(float z)
+        {
+            var v = Vector4.Transform(new Vector4(x, y, z, 1), inv);
+            return new Vector3(v.X, v.Y, v.Z) / v.W;
+        }
+        var near = Unproject(0);
+        return (near, Vector3.Normalize(Unproject(1) - near));
+    }
+
     public void Orbit(Vector2 deltaPixels)
     {
         Yaw -= deltaPixels.X * 0.005f;

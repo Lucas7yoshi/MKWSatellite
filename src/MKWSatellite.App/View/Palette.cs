@@ -1,4 +1,5 @@
 using System.Numerics;
+using MKWSatellite.Formats.Byml;
 using MKWSatellite.Formats.Course;
 
 namespace MKWSatellite.App.View;
@@ -52,6 +53,19 @@ public static class Palette
         "WaterFlowPath" => Rgb(40, 140, 255, 0xC0),
         _ => Rgb(160, 160, 160, 0x90),
     };
+
+    // AI route colours by the flags on a route rail's first point (meanings from the key names; not traced in code).
+    public static readonly uint RouteNormal = Rgb(70, 125, 255);
+    public static readonly uint RoutePreferred = Rgb(60, 230, 255);
+    public static readonly uint RouteLowPriority = Rgb(170, 110, 255);
+    public static readonly uint RouteBulletBill = Rgb(255, 150, 90);
+
+    public static uint ForRoute(BymlDict? d)
+    {
+        if (d?.Get<bool>("IsOnlyKillerInItem") == true) return RouteBulletBill;
+        var prio = d is not null && d.TryGetValue("RoutePriority", out var v) && v is int i ? i : 0;
+        return prio < 0 ? RouteLowPriority : prio > 0 ? RoutePreferred : RouteNormal;
+    }
 
     /// <summary>Rails worth drawing under "Other rails"; editor/audience helper rails are skipped.</summary>
     public static bool ShowRail(string kind) => kind is "GuideGraphRail" or "GravityPath" or "GlidePath" or "WaterFlowPath" or "PullPath";

@@ -37,6 +37,14 @@ public sealed class ActorModelResolver
     /// <summary>romfs-relative model path for an actor type, or null if it has no model (or the file is missing).</summary>
     public string? ModelPath(string actorType) => _cache.GetOrAdd(actorType, Resolve);
 
+    /// <summary>The editor's placeholder shape for an actor (<c>BancDummyShape</c>: <c>Cube_c</c>, <c>Cube_t</c>, <c>Sphere</c>...).</summary>
+    public string? DummyShape(string actorType) => _shapes.GetOrAdd(actorType, t =>
+        _actors.Value is { } actors
+            ? Lookup(actors, $"Work/Gyml/ActorGParam/{t}.gear__ActorGParam.gyml", d => d.Get<string>("BancDummyShape"))
+            : null);
+
+    private readonly ConcurrentDictionary<string, string?> _shapes = new(StringComparer.Ordinal);
+
     private string? Resolve(string actorType)
     {
         if (_actors.Value is not { } actors || _modelInfo.Value is not { } infos) return null;

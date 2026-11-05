@@ -21,7 +21,10 @@ namespace MKWSatellite.App;
 /// </summary>
 public sealed class SatelliteApp : IDisposable
 {
-    private const float LeftPanelWidth = 330, RightPanelWidth = 380;
+    private const float BaseLeftPanelWidth = 330, BaseRightPanelWidth = 380;
+    private float _uiScale = 1;
+    private float LeftPanelWidth => BaseLeftPanelWidth * _uiScale * ImGui.GetIO().FontGlobalScale;
+    private float RightPanelWidth => BaseRightPanelWidth * _uiScale * ImGui.GetIO().FontGlobalScale;
 
     private readonly IWindow _window;
     private readonly AppOptions _options;
@@ -76,16 +79,20 @@ public sealed class SatelliteApp : IDisposable
     {
         _gl = _window.CreateOpenGL();
         _input = _window.CreateInput();
-        _imgui = new ImGuiController(_gl, _window, _input);
+        _uiScale = _options.UiScale ?? AutoUiScale();
+        _imgui = CreateImGui(_uiScale);
         ImGui.GetStyle().WindowRounding = 0;
+        ImGui.GetStyle().ScaleAllSizes(_uiScale);
         _batch = new PrimitiveBatch(_gl);
         _view = new CourseView(_batch);
+        _view.Layers.LineScale = _uiScale;
         foreach (var m in _input.Mice) m.Scroll += OnScroll;
         OpenGame();
         if (_fs is not null)
         {
             _models = new ModelLibrary(_gl, _fs);
             _view.HasModel = o => _models?.Get(o.Type) is not null;
+            _view.DummyShape = t => _models?.Resolver.DummyShape(t);
         }
         _use3D = _options.View3D;
         if (_options.NoModels) _view.Layers.Models = false;
@@ -96,6 +103,27 @@ public sealed class SatelliteApp : IDisposable
             if (match is not null) LoadCourse(match);
             else _courseError = $"No race scene matches \"{c}\".";
         }
+    }
+
+    /// <summary>UI scale from the monitor height (1080p = 1), rounded to quarters. Override with --ui-scale.</summary>
+    private float AutoUiScale()
+    {
+        var h = _window.Monitor?.VideoMode.Resolution?.Y ?? 1080;
+        return Math.Clamp(MathF.Round(h / 1080f * 4) / 4, 1f, 3f);
+    }
+
+    /// <summary>
+    /// ImGui with a crisp font at the UI scale: Consolas (monospace keeps the inspector's columns aligned) from the
+    /// system font folder if present, else ImGui's built-in font scaled up.
+    /// </summary>
+    private ImGuiController CreateImGui(float scale)
+    {
+        var font = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "consola.ttf");
+        if (File.Exists(font))
+            return new ImGuiController(_gl, _window, _input, new ImGuiFontConfig(font, (int)MathF.Round(14 * scale)));
+        var c = new ImGuiController(_gl, _window, _input);
+        ImGui.GetIO().FontGlobalScale = scale;
+        return c;
     }
 
     private void OpenGame()
@@ -327,10 +355,10 @@ public sealed class SatelliteApp : IDisposable
         if (_view.Course is null) return;
         if (_use3D)
         {
-            dl.AddRectFilled(_orbit.ViewportPos, _orbit.ViewportPos + new Vector2(_orbit.ViewportSize.X, 46), 0xC0100C0A);
-            dl.AddText(_orbit.ViewportPos + new Vector2(16, 10), 0xFFFFFFFF,
+            dl.AddRectFilled(_orbit.ViewportPos, _orbit.ViewportPos + new Vector2(_orbit.ViewportSize.X, HeaderHeight), 0xC0100C0A);
+            dl.AddText(_orbit.ViewportPos + HeaderLine(0), 0xFFFFFFFF,
                 $"{_view.Course.Name}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
-            dl.AddText(_orbit.ViewportPos + new Vector2(16, 28), 0xFFB0B0B0,
+            dl.AddText(_orbit.ViewportPos + HeaderLine(1), 0xFFB0B0B0,
                 "3D: left-drag orbit, right-drag pan, wheel zoom, WASD/QE move (Shift = faster)" + ModelStatus());
             return;
         }
@@ -338,17 +366,21 @@ public sealed class SatelliteApp : IDisposable
         var target = 120 * _camera.UnitsPerPixel;
         var pow = MathF.Pow(10, MathF.Floor(MathF.Log10(target)));
         var len = new[] { 1f, 2f, 5f, 10f }.Select(m => m * pow).Last(l => l <= target);
-        var origin = _camera.ViewportPos + new Vector2(16, _camera.ViewportSize.Y - 24);
+        var lh = ImGui.GetTextLineHeight();
+        var origin = _camera.ViewportPos + new Vector2(16, _camera.ViewportSize.Y - lh - 8);
         var px = len * _camera.PixelsPerUnit;
         dl.AddLine(origin, origin + new Vector2(px, 0), 0xFFFFFFFF, 2);
-        dl.AddLine(origin, origin + new Vector2(0, -6), 0xFFFFFFFF, 2);
-        dl.AddLine(origin + new Vector2(px, 0), origin + new Vector2(px, -6), 0xFFFFFFFF, 2);
-        dl.AddText(origin + new Vector2(px + 6, -10), 0xFFFFFFFF, $"{len:0.#} units");
-        dl.AddRectFilled(_camera.ViewportPos, _camera.ViewportPos + new Vector2(_camera.ViewportSize.X, 46), 0xC0100C0A);
-        dl.AddText(_camera.ViewportPos + new Vector2(16, 10), 0xFFFFFFFF,
+        dl.AddLine(origin, origin + new Vector2(0, -lh / 2), 0xFFFFFFFF, 2);
+        dl.AddLine(origin + new Vector2(px, 0), origin + new Vector2(px, -lh / 2), 0xFFFFFFFF, 2);
+        dl.AddText(origin + new Vector2(px + 6, -lh * 0.7f), 0xFFFFFFFF, $"{len:0.#} units");
+        dl.AddRectFilled(_camera.ViewportPos, _camera.ViewportPos + new Vector2(_camera.ViewportSize.X, HeaderHeight), 0xC0100C0A);
+        dl.AddText(_camera.ViewportPos + HeaderLine(0), 0xFFFFFFFF,
             $"{_view.Course.Name}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
-        dl.AddText(_camera.ViewportPos + new Vector2(16, 28), 0xFFB0B0B0, "top-down: +X right, +Z down" + ModelStatus());
+        dl.AddText(_camera.ViewportPos + HeaderLine(1), 0xFFB0B0B0, "top-down: +X right, +Z down" + ModelStatus());
     }
+
+    private static float HeaderHeight => ImGui.GetTextLineHeightWithSpacing() * 2 + 12;
+    private static Vector2 HeaderLine(int i) => new(16, 6 + i * ImGui.GetTextLineHeightWithSpacing());
 
     private string ModelStatus() =>
         _models is null || !_view.Layers.Models ? "" :
@@ -416,19 +448,38 @@ public sealed class SatelliteApp : IDisposable
             if (swatch is { } c)
             {
                 var p = ImGui.GetCursorScreenPos();
-                ImGui.GetWindowDrawList().AddRectFilled(p + new Vector2(0, 3), p + new Vector2(10, 13), c);
-                ImGui.Dummy(new Vector2(14, 0));
+                var sz = ImGui.GetTextLineHeight() * 0.75f;
+                var top = (ImGui.GetFrameHeight() - sz) / 2;
+                ImGui.GetWindowDrawList().AddRectFilled(p + new Vector2(0, top), p + new Vector2(sz, top + sz), c);
+                ImGui.Dummy(new Vector2(sz + 4, 0));
                 ImGui.SameLine();
             }
             changed |= ImGui.Checkbox(label, ref v);
         }
 
+        ImGui.SetNextItemWidth(120 * _uiScale);
+        if (ImGui.SliderFloat("Line / marker size", ref L.LineScale, 0.5f, 4f, "%.1fx")) changed = true;
+        var fs = ImGui.GetIO().FontGlobalScale;
+        ImGui.SetNextItemWidth(120 * _uiScale);
+        if (ImGui.SliderFloat("Text size", ref fs, 0.6f, 2f, "%.1fx")) ImGui.GetIO().FontGlobalScale = fs;
         ImGui.TextDisabled("Paths");
         Toggle("Lap path (coloured by height)", ref L.LapPath, Palette.Height(0.5f, 0, 1));
         Toggle("Checkpoint gates", ref L.CheckpointGates, Palette.CheckpointGate);
         Toggle("All lap gates", ref L.AllGates, Palette.Gate);
         Toggle("Checkpoint labels", ref L.CheckpointLabels);
-        Toggle("AI routes", ref L.AiRoutes, Palette.ForRail("RoutePathGraph"));
+        Toggle("AI routes", ref L.AiRoutes, Palette.RouteNormal);
+        if (L.AiRoutes)
+        {
+            void Legend(uint c, string t)
+            {
+                ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine();
+                ImGui.TextColored(Palette.ToVector(c), t);
+            }
+            Legend(Palette.RoutePreferred, "RoutePriority > 0");
+            Legend(Palette.RouteNormal, "default route");
+            Legend(Palette.RouteLowPriority, "RoutePriority < 0 (alternative)");
+            Legend(Palette.RouteBulletBill, "Bullet Bill only (IsOnlyKillerInItem)");
+        }
         Toggle("Glide / gravity / guide rails", ref L.OtherRails, Palette.ForRail("GlidePath"));
         ImGui.TextDisabled("Objects");
         Toggle("Item boxes", ref L.ItemBoxes, Palette.ForCategory(ObjectCategory.ItemBox));

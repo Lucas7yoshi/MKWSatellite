@@ -65,3 +65,15 @@ in scene-layers.md and `CourseObjectClassifier.SystemTypes`.
 ## Notable actor types (Rainbow Road / Boo Cinema)
 `CmnObj_ItemBox000_A/B_00`, `CmnObj_Coin000_A_00`, `StartPosition` (`Dynamic.StartPositionId`), `CmnObj_DashBoard000_*`, `CmnObj_GlideBoard000_*`, `CmnObj_AccelRing000_A_00`, `SystemObj_RescueArea_00` (respawn), `SystemObj_ValleyArea_00`, `SystemObj_GlideAreaKiller_00`, `Area_DeleteLinkedActor_00`, `SystemObj_HighSpeedArea_00`, course-specific objects (`CmnObj_TeresaCinema000_A_00` Boos, `SystemObj_RainbowTrain*`).
 Stray objects can sit far outside the course (a coin at ~(3420, 12313) on Rainbow Road), so frame views on the paths rather than on all actors.
+
+## AI routes (`RoutePathGraph`)
+Many short route rails branch off the main line. Flags sit in the first point's `Dynamic`; the viewer colours by them,
+meanings taken from the key names only (not traced in code): `RoutePriority` (-2..10; negative on alternative lines
+such as DK Pass's shortcut between checkpoints 4 and 5), `IsOnlyKillerInItem` (Bullet Bill only), `IsIgnoreItem`,
+`IsIgnoreEnemy`, `IsAssistAvailable`, `FastType`, `TrickType`, `ItemGroup`, `RecoverType`.
+
+## Area shapes
+An area's actor gyml has `BancDummyShape` (`Cube_c` 33 types, `Cube_t` 14, `Cube` 9, `Sphere` 4, `Cylinder` 3,
+`Cylinder_c` 2). Rescue/valley/high-speed/dash areas are `Cube_t`; across all race scenes the lap and route points inside
+rescue areas sit 0.3-0.7 of the box height above the actor's origin, so `Cube_t` boxes extend upwards from their origin
+(Y 0..1 × Scale) while `_c` ones are centred. Inferred from data, not traced in code.

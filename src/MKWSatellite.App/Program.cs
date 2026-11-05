@@ -22,13 +22,15 @@ namespace MKWSatellite.App
 {
     /// <summary>
     /// Command line: <c>MKWSatellite [romfs...] [--course &lt;name part&gt;] [--screenshot &lt;out.png&gt;] [--size WxH]
-    /// [--3d] [--orbit yawDeg,pitchDeg[,distance]] [--no-models]</c>.
+    /// [--3d] [--orbit yawDeg,pitchDeg[,distance]] [--no-models] [--ui-scale N]</c>.
     /// Positional arguments are romfs layers (base first) and override the configured ones.
     /// </summary>
     public sealed record AppOptions(IReadOnlyList<string> Romfs, string? Course, string? Screenshot, int Width, int Height)
     {
         public bool View3D { get; init; }
         public bool NoModels { get; init; }
+        /// <summary>UI scale (1 = 1080p); null = from the monitor resolution.</summary>
+        public float? UiScale { get; init; }
         /// <summary>Initial 3D camera: yaw and pitch in degrees, distance (0 = framed).</summary>
         public System.Numerics.Vector3? Orbit { get; init; }
 
@@ -40,6 +42,7 @@ namespace MKWSatellite.App
             string? course = null, shot = null;
             int w = 1600, h = 900;
             bool view3d = false, noModels = false;
+            float? uiScale = null;
             System.Numerics.Vector3? orbit = null;
             for (var i = 0; i < args.Length; i++)
             {
@@ -53,6 +56,7 @@ namespace MKWSatellite.App
                         h = int.Parse(parts[1]);
                         break;
                     case "--3d": view3d = true; break;
+                    case "--ui-scale" when i + 1 < args.Length: uiScale = float.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture); break;
                     case "--no-models": noModels = true; break;
                     case "--orbit" when i + 1 < args.Length:
                         var o = args[++i].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
@@ -61,7 +65,7 @@ namespace MKWSatellite.App
                     default: romfs.Add(args[i]); break;
                 }
             }
-            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, NoModels = noModels, Orbit = orbit };
+            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, NoModels = noModels, Orbit = orbit, UiScale = uiScale };
         }
     }
 }
