@@ -58,6 +58,8 @@ rail's `IsClosed`.
     (upper bound optional), with centre lerped and frame slerped; a per-point side mode (+0x530) swaps the lateral test
     on one side for the straight line between the two gates' edges. Of the passing segments the nearest point wins.
   - So the progress zone is the gates joined corner to corner, which the viewer draws ("Lap progress zones").
+  - Being in no zone at all marks the racer's lap position invalid and leads to a Lakitu rescue (out-of-bounds.md,
+    "Lap-out").
   - Confirmed in game (user, 2026-11-05): driving around the old half-size, offset/2 gates at SFC Mario Circuit G
     checkpoints 1-3 still counted; with the traced rule those gates span the corridor wall to wall.
   - Earlier guesses (centre at offset / 2, size as full width, `mkwsat ground`/`gatefit`/`gateturn` statistics) are
