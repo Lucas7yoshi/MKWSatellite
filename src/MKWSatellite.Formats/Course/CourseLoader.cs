@@ -18,6 +18,16 @@ public sealed partial class CourseLoader(GameFileSystem fs)
     public Vector3 WorldMargin { get; set; } = new(250, 250, 250);
 
     private List<BancScene>? _worldTiles;
+    private ActorDatabase? _database;
+
+    /// <summary>The game's actor table (labels/categories), loaded once.</summary>
+    public ActorDatabase Database => _database ??= ActorDatabase.Load(fs);
+
+    private CourseObject Make(BancActor a, CourseLayer layer)
+    {
+        var info = Database.Get(a.Type);
+        return new CourseObject(a, layer, CourseObjectClassifier.Classify(a.Type, info), info);
+    }
 
     /// <summary>Race scene file names (in <c>Banc/</c>), e.g. <c>Race_Cinema_A_00[Game03].bcett.byml.zs</c>.</summary>
     public IReadOnlyList<string> ListRaceScenes() =>
@@ -33,7 +43,7 @@ public sealed partial class CourseLoader(GameFileSystem fs)
     {
         var race = BancScene.Parse(fs.Read($"{BancScene.RomfsDirectory}/{raceFile}"));
         var rails = race.Rails.Select(r => new CourseRail(r, CourseLayer.Race)).ToList();
-        var objects = race.Actors.Select(a => new CourseObject(a, CourseLayer.Race, CourseObjectClassifier.Classify(a.Type))).ToList();
+        var objects = race.Actors.Select(a => Make(a, CourseLayer.Race)).ToList();
 
         var pathPoints = race.Rails.Where(r => r.Name is "LapPathGraph" or "RoutePathGraph").SelectMany(r => r.Points).Select(p => p.Translation).ToList();
         if (pathPoints.Count == 0) pathPoints = race.Actors.Select(a => a.Translate).ToList();
@@ -48,7 +58,7 @@ public sealed partial class CourseLoader(GameFileSystem fs)
         {
             progress?.Report($"Loading {course}_00_Fix");
             var fix = BancScene.Parse(fs.Read(fixPath));
-            objects.AddRange(fix.Actors.Select(a => new CourseObject(a, CourseLayer.CourseFix, CourseObjectClassifier.Classify(a.Type))));
+            objects.AddRange(fix.Actors.Select(a => Make(a, CourseLayer.CourseFix)));
             rails.AddRange(fix.Rails.Select(r => new CourseRail(r, CourseLayer.CourseFix)));
             staticSource = $"{course}_00_Fix";
         }
@@ -63,7 +73,7 @@ public sealed partial class CourseLoader(GameFileSystem fs)
                 var used = false;
                 foreach (var a in tile.Actors.Where(a => Inside(a.Translate)))
                 {
-                    objects.Add(new CourseObject(a, CourseLayer.World, CourseObjectClassifier.Classify(a.Type)));
+                    objects.Add(Make(a, CourseLayer.World));
                     used = true;
                 }
                 // World rails (glide/gravity/water paths) are kept when any point is inside the course bounds.
@@ -77,6 +87,12 @@ public sealed partial class CourseLoader(GameFileSystem fs)
             staticSource = $"World_Game03 ({tilesUsed} tiles)";
         }
 
+        // Resolve links between objects (links never cross scene layers in the shipped data, but resolve globally anyway).
+        var byHash = objects.GroupBy(o => o.Actor.Hash).ToDictionary(g => g.Key, g => g.First());
+        foreach (var o in objects)
+            foreach (var (dst, name) in o.OutgoingLinks)
+                if (byHash.TryGetValue(dst, out var target)) target.IncomingLinks.Add(new IncomingLink(o, name));
+
         var lap = rails.Where(r => r.Kind == "LapPathGraph" && r.Layer == CourseLayer.Race)
             .SelectMany(r => r.Rail.Points.Select((p, i) => new LapPoint(p, r, i))).ToList();
 
@@ -89,6 +105,7 @@ public sealed partial class CourseLoader(GameFileSystem fs)
             Rails = rails,
             LapPoints = lap,
             PathBounds = bounds,
+            Database = Database,
         };
     }
 

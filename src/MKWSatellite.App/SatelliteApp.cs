@@ -324,11 +324,14 @@ public sealed class SatelliteApp : IDisposable
         Toggle("Fences", ref L.Fences, Palette.ForCategory(ObjectCategory.Fence));
         Toggle("Audience", ref L.Audience, Palette.ForCategory(ObjectCategory.Audience));
         Toggle("Other scenery", ref L.Scenery, Palette.ForCategory(ObjectCategory.Other));
-        ImGui.TextDisabled("Areas (box size unverified)");
-        Toggle("Respawn (RescueArea)", ref L.RespawnAreas, Palette.ForCategory(ObjectCategory.RespawnArea));
-        Toggle("Valley (fall-out)", ref L.ValleyAreas, Palette.ForCategory(ObjectCategory.ValleyArea));
-        Toggle("Kill areas", ref L.KillAreas, Palette.ForCategory(ObjectCategory.KillArea));
+        ImGui.TextDisabled("Areas (base size inferred)");
+        Toggle("Rescue / respawn areas", ref L.RespawnAreas, Palette.ForCategory(ObjectCategory.RespawnArea));
+        Toggle("Recovery points", ref L.RecoveryPoints, Palette.ForCategory(ObjectCategory.RecoveryPoint));
+        Toggle("Valley areas", ref L.ValleyAreas, Palette.ForCategory(ObjectCategory.ValleyArea));
         Toggle("High-speed areas", ref L.HighSpeedAreas, Palette.ForCategory(ObjectCategory.HighSpeedArea));
+        Toggle("Invisible dash / glide areas", ref L.BoostAreas, Palette.ForCategory(ObjectCategory.BoostArea));
+        Toggle("Rule areas (no reverse, no jump...)", ref L.RuleAreas, Palette.ForCategory(ObjectCategory.RuleArea));
+        Toggle("Spawn / delete link areas", ref L.LinkAreas, Palette.ForCategory(ObjectCategory.LinkArea));
         Toggle("Other areas", ref L.OtherAreas, Palette.ForCategory(ObjectCategory.OtherArea));
         ImGui.TextDisabled("Scene layers");
         Toggle("Race scene", ref L.LayerRace);
@@ -368,6 +371,20 @@ public sealed class SatelliteApp : IDisposable
             case PickedObject { Object: var o }:
                 ImGui.TextWrapped(o.Type);
                 ImGui.TextColored(Palette.ToVector(Palette.ForCategory(o.Category)), $"{o.Category}  ({o.Layer} layer)");
+                if (CourseObjectClassifier.Gloss(o.Type) is { } gloss) ImGui.TextWrapped(gloss);
+                if (o.Info is { } info) ImGui.TextDisabled($"[{info.Category}] {info.Label}");
+                foreach (var link in o.IncomingLinks)
+                {
+                    var role = link.Source.Type switch
+                    {
+                        "SystemObj_CreateLinkArea_00" => "Spawned by area",
+                        "Area_DeleteLinkedActor_00" => "Deleted by area",
+                        _ => $"Linked ({link.LinkName}) from",
+                    };
+                    ImGui.TextColored(new Vector4(1, 1, 0.5f, 1), $"{role} {link.Source.Type} at {link.Source.Position.X:0}, {link.Source.Position.Z:0}");
+                }
+                if (o.Actor.Raw.Dict("ScreenSetting") is { } screens)
+                    ImGui.TextColored(new Vector4(0.6f, 0.8f, 1, 1), "Split-screen setting: " + string.Join(", ", screens.Select(kv => $"{kv.Key}={kv.Value}")) + " (meaning of values unverified)");
                 Vec("Position", o.Position);
                 Vec("Rotate (deg)", o.Actor.Rotate * (180f / MathF.PI));
                 Vec("Scale", o.Actor.Scale);

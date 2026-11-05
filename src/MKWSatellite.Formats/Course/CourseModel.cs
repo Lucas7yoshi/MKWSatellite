@@ -26,9 +26,16 @@ public enum ObjectCategory
     StartPosition,
     LapGate,
     RespawnArea,
+    /// <summary>Point-like respawn/recovery markers (priority Lakitu recovery point, respawn point).</summary>
+    RecoveryPoint,
     ValleyArea,
-    KillArea,
     HighSpeedArea,
+    /// <summary>Invisible boost/glide triggers (DashArea, GlideArea) and the Bullet-Bill-only glide area.</summary>
+    BoostArea,
+    /// <summary>Gameplay rule areas: no reverse driving, no jump action, item destroying, high dirt, no entry...</summary>
+    RuleArea,
+    /// <summary>Areas that spawn or delete linked actors (CreateLinkArea, Area_DeleteLinkedActor).</summary>
+    LinkArea,
     OtherArea,
     Hazard,
     Fence,
@@ -36,18 +43,31 @@ public enum ObjectCategory
     Other,
 }
 
-/// <summary>A placed actor in a course, tagged with its layer and category.</summary>
-public sealed record CourseObject(BancActor Actor, CourseLayer Layer, ObjectCategory Category)
+/// <summary>A link from another object to this one (e.g. a CreateLinkArea that spawns it).</summary>
+public sealed record IncomingLink(CourseObject Source, string LinkName);
+
+/// <summary>A placed actor in a course, tagged with its layer, category and actor-database row.</summary>
+public sealed record CourseObject(BancActor Actor, CourseLayer Layer, ObjectCategory Category, ActorInfo? Info)
 {
     public string Type => Actor.Type;
+
+    /// <summary>Links from other objects in the course that target this one. Filled by <see cref="CourseLoader"/>.</summary>
+    public List<IncomingLink> IncomingLinks { get; } = [];
+
+    /// <summary>Outgoing link targets by hash (<c>Links[].Dst</c>), with link names.</summary>
+    public IEnumerable<(ulong Dst, string Name)> OutgoingLinks =>
+        BancScene.Items(Actor.Raw.Array("Links")).OfType<BymlDict>().Select(l => (l.Get<ulong>("Dst"), l.Get<string>("Name") ?? ""));
+
+    /// <summary>Editor primitive for areas: Cube (default), Sphere, Cylinder...</summary>
+    public string Primitive => Actor.Raw.Get<string>("PrimitiveType") ?? "Cube";
     public Vector3 Position => Actor.Translate;
 
     /// <summary>Rotation from the actor's Euler angles (radians, applied X then Y then Z; same convention as rail points).</summary>
     public Matrix4x4 Rotation => CourseMath.EulerXyz(Actor.Rotate);
 
     /// <summary>True for box-shaped areas (editor <c>PrimitiveType</c> Cube/Box).</summary>
-    public bool IsArea => Category is ObjectCategory.RespawnArea or ObjectCategory.ValleyArea or ObjectCategory.KillArea
-        or ObjectCategory.HighSpeedArea or ObjectCategory.OtherArea;
+    public bool IsArea => Category is ObjectCategory.RespawnArea or ObjectCategory.ValleyArea or ObjectCategory.HighSpeedArea
+        or ObjectCategory.BoostArea or ObjectCategory.RuleArea or ObjectCategory.LinkArea or ObjectCategory.OtherArea;
 }
 
 /// <summary>A rail (path) with its layer.</summary>
@@ -97,6 +117,7 @@ public sealed class CourseScene
     public required IReadOnlyList<CourseObject> Objects { get; init; }
     public required IReadOnlyList<CourseRail> Rails { get; init; }
     public required IReadOnlyList<LapPoint> LapPoints { get; init; }
+    public required ActorDatabase Database { get; init; }
     /// <summary>3D bounds of the race's lap and route paths (the area the course occupies).</summary>
     public required (Vector3 Min, Vector3 Max) PathBounds { get; init; }
 

@@ -10,74 +10,111 @@ A race does **not** edit the open world. It is an *additive* stack of independen
 
 | Layer | Files | Contents | Loaded in a race? |
 |---|---|---|---|
-| Base world | `Banc/World_Game03/<RRCC>.bcett.byml.zs` (160 tiles) + `World_Game03/WorldResident.bcett.byml.zs` | All permanent scenery and **course furniture**: dash panels, glide ramps, boost rings, jump ramps, fences, decoration. Region-authored (`AreaName` = `Scene/Forest_00_Fix.bcett.json`, `Plain_00_Fix`, …, plus auto-generated `Auto_*` layers). | Yes (always-loaded world layer) |
-| Free-roam world | `Banc/World_Game03-Free/<RRCC>.bcett.byml.zs` (142 tiles) + `-Free/WorldResident` | Free-roam only: ~4,600 coins, ~950 item boxes, P-switch mission gates, cameras, parking spaces, restart points. | **No**: separate layer, loaded only in free-roam conditions |
-| Race scene | `Banc/Race_<Course>_<Variant>_NN[Game03].bcett.byml.zs` | Race-only content: `LapPathGraph` (checkpoints), AI `RoutePathGraph`, item boxes, coins, start grid, respawn (`RescueArea`), valley/kill areas, audience, race fences | Yes |
-| Off-world course layer | `Banc/<Course>_00_Fix.bcett.byml.zs` (only `Rainbow_00_Fix` today) | The static furniture of a course outside the world grid (Rainbow Road: boost rings, coins, gravity/glide paths, lap gate) | Yes, for that course (data only, see below) |
+| Base world | `Banc/World_Game03/<RRCC>.bcett.byml.zs` (160 tiles) + `World_Game03/WorldResident.bcett.byml.zs` | All permanent scenery and **course furniture**: dash panels, glide ramps, boost rings, jump ramps, fences, decoration, world valley areas and respawn points | Yes (always-loaded world layer) |
+| Free-roam world | `Banc/World_Game03-Free/<RRCC>.bcett.byml.zs` (142 tiles) + `-Free/WorldResident` | Free-roam only: ~4,600 coins, ~950 item boxes, P-switch mission gates, cameras, parking spaces, restart points | **No**: a separate layer loaded only in free-roam mode |
+| Race scene | `Banc/Race_<Course>_<Variant>_NN[Game03].bcett.byml.zs` | Race-only content: `LapPathGraph` (checkpoints), AI `RoutePathGraph`, item boxes, coins, start grid, `RescueArea`, valley areas, audience, race fences | Yes |
+| Off-world course layer | `Banc/<Course>_00_Fix.bcett.byml.zs` (only `Rainbow_00_Fix` today) | Rainbow Road's static furniture: its own dash plates, glide plates, boost/star rings, gates, high-speed areas, gravity/glide paths | Yes: it is referenced by the always-resident world scene (see below) |
 | World AI paths | `Banc/Game03_AllPath_Fix.bcett.byml.zs` | 1,704 `RoutePathGraph` rails for the whole world (free-roam / CPU driving) | Not needed for course display |
 
-## Evidence
+## How the layers are authored (`RSDB/BancWorldTransformInfo`)
+
+`RSDB/BancWorldTransformInfo.Product.NNN.rstbl.byml.zs` is the scene composition tree (3,828 rows, all tagged
+`World_Game03`). Each row places a child scene (`Resource`) inside a parent scene (`id` = `<parent>?<guid>@World_Game03`)
+with a transform and a nesting `depth`. Roots are the region scenes (`Forest_00_Fix`, `Plain_00_Fix`, `Ice_00_Fix`,
+…, `World_Obj_00_Fix`, `World_Obj_Free_00_Fix`, `Auto_Game03_RoadTool`). Each region holds its course scenes and the
+courses' free-roam sub-scenes, e.g. `Forest_00_Fix` contains:
+
+- `Cinema_00` at (2255, 542, -4952), rotY -0.556; `BigTree_00`; `SFCMarioCircuit_00`
+- `Cinema_Gnd_Free_00`, `Cinema_Obj_Free_00` (free-roam additions for the same area)
+
+The shipped world tiles are this tree baked into absolute coordinates, then **partitioned by source** (data,
+checked over every actor's `ParentPrefab`):
+- base tiles contain **no** actor from any `*_Free*` prefab (88,829 actors: region `<Area>_Gnd_A_00` /
+  `<Area>_Obj_00` prefabs, `Houdini/Auto_*` generated sets, manual placements);
+- `-Free` tiles contain **only** `Prefab/<Area>_Obj_Free_00` actors plus `Houdini/Auto_AutoPlacementCoin` (10,124);
+- 0 hashes are shared between the two.
+
+## Which race uses what (`RSDB/Course`)
+
+`RSDB/Course.Product.NNN.rstbl.byml.zs` has a row per playable layout (310, all `Scene` = `Game03`) with
+`BancFile`, `GameRule`, `TrafficType`, `AudienceType`, `WorldConfigId` and a **world transform parent**:
+- `[Game03]` race scenes have `WorldTransformParentFile` = their course scene (`Race_Cinema_A_00` → `Scene/Cinema_00`).
+- Rainbow has `WorldTransformParentActor` = `SystemObj_PointRainbow_01`. That actor sits in the base world's
+  `WorldResident` scene at (0, 0, 0) with no rotation, and its `Dynamic.PrefabPath` = `Scene/Rainbow_00`, which
+  `SceneRes_LoadResolveFix` loads as `Rainbow_00_Fix`. So Rainbow's static layer is loaded **through the
+  always-resident world**, and its parent transform is the identity.
+- Race scenes **without** `[Game03]` are the SNES retro tracks added after 1.0, hosted inside a course area
+  (developer names): `Cinema_B/C/D` = SFC Ghost Valley 1/2/3 (おばけぬま), `ChocoMountain_B/C` = Choco Island 1/2,
+  `IceBuildings_B` = Vanilla Lake 1, `KoopaTroopaBeach_C` = SNES Koopa Beach 1. They have no transform parent and
+  sit on the world map beside their host course (Ghost Valley next to the cinema at the same ground height).
+  Also new since 1.0: `SFCMarioCircuit_A/B/C_01[Game03]`.
+- `Race_DinoDinoJungle_B_00` (reverse) is listed in the table but has **no Banc file** in 1.8 (kept as data, not "fixed").
+
+Coordinates: the placement parser multiplies every actor position by an optional parent matrix
+(BancPlacement_ParseTransformMarkingScreen, `0x710029B9F0`). Race scene positions already line up with the baked world
+(Boo Cinema's world dash panels are 9–18 units from its lap path; Rainbow's parent is the identity). So the effective
+parent transform in shipping data is the identity, and the files can be drawn in their stored coordinates.
+
+## Evidence that races don't edit the world
 
 ### No object-level overrides (data, all 57 race scenes)
 - 0 race actors share a `Hash` or `InstanceId` with any of the 124,303 base-world objects (actors and rail points).
-- 0 race `Links` point at world objects.
-- 0 hashes are shared between base world tiles and `-Free` tiles.
-
-So nothing in a race scene replaces, moves or deletes a world object by reference. The theory "the world is altered
-by the course layer" does not hold at the data level; any altering would have to come from runtime rules
-(see Open questions).
+- 0 race `Links` point at world objects; links only ever target objects in the **same** scene.
 
 ### Course furniture lives in the base world (data)
-Course-specific dash panels exist **only** in world tiles, e.g. `CmnObj_DashBoardCinema000_A/B/C_00`
-(`AreaName` Forest_00_Fix) and `CmnObj_DashBoardSnowMountain000_A..E_00` (Ice_00_Fix). Distance from these world
-actors to the race's own lap path:
-- Boo Cinema (`Race_Cinema_A_00[Game03]`): dash panels 9–18 units, glide board 2 units.
-- Snow Mountain: dash panels 21–33, boost rings 13–53, glide boards 3–12.
-
-`Race_Cinema_A` itself contains **no** dash panels, so without the world layer the course would be missing them.
-
-### Rainbow Road uses `Rainbow_00_Fix`, not the world (data only)
-World furniture is ~2,400+ units from Rainbow's lap path (it sits far below). `Rainbow_00_Fix` objects are right on
-it: coins median 21, `StarRing` 30, `AccelRing` 54, and the lap gate 8 units away. It also carries the course's
-`GravityPath` / `GlidePath` rails. How the game chooses `Rainbow_00_Fix` was not traced.
+Course-specific dash panels exist only in world tiles, e.g. `CmnObj_DashBoardCinema000_A/B/C_00` (Forest_00_Fix) and
+`CmnObj_DashBoardSnowMountain000_A..E_00` (Ice_00_Fix): 9–33 units from their race's lap path. `Race_Cinema_A`
+itself contains no dash panels.
 
 ### Code
-- **World tile loader** `0x7100756F20`: formats `"%s/%s.bcett.json"` or, when the layer's mode field (`+0x30`) == 1,
-  `"%s-Free/%s.bcett.json"`. So base and Free are whole separate layers, never merged per object.
-- **WorldResident loader** `0x7100756CD0`: `"%s/WorldResident.bcett.byml"` vs `"%s-Free/WorldResident.bcett.byml"`
-  by the layer mode (`+0x78`).
-- **Scene name resolution** `0x7100757260`: a requested scene `X` (from `.bcett.json` names) is loaded as `X_Fix`
-  (or `X_Fix-Free` for names ending `-Free`) when that file exists. This explains the `_Fix` names used in
-  `AreaName`/`RelativeFiles`.
-- **World manager** `0x71005B6D80`: holds two world-layer objects (manager `+0x50` and `+0x58`). It always loads
-  the first, and loads the second only when its flag is set. The caller `0x71008A8440` passes
-  `flag = (gameModeField +0x10C == 0)`, and `0x71005B12B0` gates the second layer on the `"GridFreeRun"` resource
-  group. The second layer is therefore the free-roam (`-Free`) one, loaded only in that mode.
-  **Not yet confirmed:** the constructor that sets each layer's mode field (to prove `+0x58` is mode 1).
-- **Stage (race) scene loader** `0x7100362670`: loads `"Banc/%s.bcett.byml"` with the full scene name
-  (including `[Game03]`). It is independent of the world manager, so the race scene is a separate layer on top.
+- **World tile loader** WorldTile_RequestLoad `0x7100756F20`: `"%s/%s.bcett.json"`, or `"%s-Free/%s.bcett.json"`
+  when the tile's mode field (`+0x30`) is 1. Base and Free are whole separate layers.
+- **WorldResident loader** WorldLayer_LoadResident `0x7100756CD0`: `"%s/WorldResident.bcett.byml"` vs
+  `"%s-Free/WorldResident.bcett.byml"` by the layer mode (`+0x78`).
+- **Scene name resolution** SceneRes_LoadResolveFix `0x7100757260`: a requested scene `X` is loaded as `X_Fix`
+  (or `X_Fix-Free`) when that file exists.
+- **World manager** WorldMgr_LoadWorld `0x71005B6D80`: two world layers (manager `+0x50`, `+0x58`). The first is
+  always loaded; the second only when GameScene_StartWorldLoad `0x71008A8440` passes `gameMode(+0x10C) == 0`, and
+  WorldMgr_UpdateFreeLayerState `0x71005B12B0` additionally requires the `"GridFreeRun"` resource group. Mode 0 is
+  the path that also uses the `"StageFreeRun"` resources (GameScene_UpdateWorldState `0x71005B3940`). Combined with
+  the data partition above, the second layer is the `-Free` world and races don't load it.
+  *Not traced:* the constructor that writes each layer's mode field, i.e. a direct proof that `+0x58` is mode 1.
+- **Stage (race) scene loader** StageScene_LoadBanc `0x7100362670`: `"Banc/%s.bcett.byml"` with the full scene
+  name (including `[Game03]`), independent of the world manager.
 
-IDA names given in the 1.8 database: `WorldTile_RequestLoad` (0x7100756F20), `WorldLayer_LoadResident` (0x7100756CD0),
-`SceneRes_LoadResolveFix` (0x7100757260), `WorldLayer_UpdateTileLoads` (0x71005B4460), `WorldMgr_LoadWorld`
-(0x71005B6D80), `WorldMgr_UpdateFreeLayerState` (0x71005B12B0), `GameScene_StartWorldLoad` (0x71008A8440),
-`GameScene_UpdateWorldState` (0x71005B3940), `StageScene_LoadBanc` (0x7100362670).
+## Things in the data that change what is present at runtime
+
+| Mechanism | What it does | Race impact |
+|---|---|---|
+| `Area_DeleteLinkedActor_00` | Developer label 「リンク先を削除するエリア（レインボー用）」: *area that deletes its link targets (for Rainbow)*. Used only in `Race_Rainbow_A_00`, `Rainbow_00_Fix` and the Central→Rainbow route. | Rainbow only. The areas cover the lower course (Y ≈ 2250–2970) and link to the **start section** (space station model, start lap gate, solar panels, Thwomps, start dash/glide panels at Y ≈ 4950) and one audience group. They unload the start area once you're down the course. Trigger semantics (player entering?) not traced. |
+| `SystemObj_CreateLinkArea_00` | Label 「生成リンクエリア」: *spawn-link area*, creates its `CreateLink`/`BasicSignal` targets. | `Race_DinoBones_A_00`: one boost ring (`CmnObj_AccelRing000_A_00` at -1707, 625, -4686) is a spawn-link target. `Race_Central_C_00` has one with no links. Also used on open-world routes. |
+| `Marking: ["RoadDeco"]` | The placement parser sets bit 0x08 of the placement flags (`+0x150`) when `Marking` contains `"RoadDeco"` (verified in code). 10,135 world actors: guardrails, reflectors, bollards, street lights, 296 dash panels from `Auto_Game03_RoadTool`. Reader of the bit not traced. | **None on race lines**: no RoadDeco dash/glide/jump object is within 40 units of any race's lap path. They decorate the open-world roads used by the routes between courses. |
+| `ScreenSetting {Single, Double, Quadruple}` | Per split-screen-mode values parsed into flag bytes `+0x148..+0x14B` (verified in code). 1,012 world actors, e.g. birds/seagulls/eagles `{Double: 1, Quadruple: 1}`, wooden fences `2` in all modes. Meaning of 1 vs 2 not traced. | Can make objects differ between 1-, 2- and 4-player screens. Time trials are single-screen. Shown in the inspector. |
+| `SystemObj_ForbidObjAutoGenerateArea_00` | Label: *object auto-generation forbidden area*. 25, world only. | Affects auto-generated free-roam objects; none in race scenes. |
 
 ## What the viewer does with this
 For a race scene, show:
 1. the race scene (all of it), plus
-2. the static course layer: `<Course>_00_Fix` if it exists, otherwise base-world tiles (`World_Game03`, never
-   `-Free`) clipped to the 3D bounds of the race's lap/route paths plus a margin. The Y range matters: it keeps
-   ground-level world objects out of sky courses.
+2. `<Course>_00_Fix` if it exists, otherwise base-world tiles (`World_Game03`, never `-Free`) clipped to the 3D
+   bounds of the race's lap/route paths plus 250 units. The clipping is **display only**: in game the whole base
+   world is loaded; the box keeps unrelated parts of the map out of the view. The Y range keeps ground-level world
+   objects out of Rainbow Road.
 
-Each object keeps its source layer so the UI can colour or filter by layer.
+Every object keeps its source layer, its actor-database label, and incoming links ("deleted by area", "spawned by
+area"), all shown in the inspector.
 
 ## Open questions (do not present as fact)
-- Runtime suppression of world objects during races: `Area_DeleteLinkedActor_00` (Rainbow race and Fix scenes),
-  `SystemObj_ForbidObjAutoGenerateArea_00`, `SystemObj_CreateLinkArea_00`, and world actors with
-  `Marking: ["RoadDeco"]` (10,135 of them, incl. 296 dash panels from `Auto_Game03_RoadTool`). Not traced.
-  RoadDeco dash panels may be free-roam road decoration that is or is not active in races.
+- Exact trigger of `Area_DeleteLinkedActor_00` / `CreateLinkArea` (player enters? any racer? CPU?).
+- Who reads the RoadDeco flag and what it changes (only relevant off race lines).
+- `ScreenSetting` value meanings.
 - Dash panel facing: Boo Cinema's world dash panels face against the lap direction (see banc.md). Possibly flipped
-  at runtime by travel direction (user's hypothesis).
-- Why some race scenes lack the `[Game03]` suffix (`Race_Cinema_B/C/D_00`, `Race_ChocoMountain_B/C_00`, …).
+  at runtime by travel direction (user's hypothesis). Shown as stored.
+- `SystemObj_RespawnPoint_00` (「リスポーン地点」) in the base world near courses: whether races use it or only free roam.
 - `Banc/PathAdditionalData/<scene>.byml`: per-point precomputed data in hash-map nodes
-  (keys `CH`, `CHHit`, `CHNum`, `SD`, `ST`, `VDP`, `WDM`, `HS`). Possibly checkpoint data per route point; not decoded.
+  (keys `CH`, `CHHit`, `CHNum`, `SD`, `ST`, `VDP`, `WDM`, `HS`). Not decoded.
+
+IDA names given in the 1.8 database: `WorldTile_RequestLoad` (0x7100756F20), `WorldLayer_LoadResident` (0x7100756CD0),
+`SceneRes_LoadResolveFix` (0x7100757260), `WorldLayer_UpdateTileLoads` (0x71005B4460), `WorldMgr_LoadWorld`
+(0x71005B6D80), `WorldMgr_UpdateFreeLayerState` (0x71005B12B0), `GameScene_StartWorldLoad` (0x71008A8440),
+`GameScene_UpdateWorldState` (0x71005B3940), `StageScene_LoadBanc` (0x7100362670), `RailGraph_ParseRail`
+(0x710029AD70), `BancPlacement_ParseTransformMarkingScreen` (0x710029B9F0).

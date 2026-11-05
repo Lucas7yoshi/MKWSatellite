@@ -44,3 +44,9 @@ Alternatives (all world objects, or the race scene only) would clutter the view 
 `MKWSatellite --course <name> --screenshot out.png` renders the normal UI for a few frames and saves the back buffer
 (own PNG writer, no dependency). One rendering path for interactive and image use. Screenshots are derived from
 game data and are not committed.
+
+### D13. Classify by the developers' labels, and never "fix" the game's data (2026-11-05)
+`RSDB/Actor` labels (e.g. 「汎用ダッシュ板」 = general dash board) are more reliable than type names, so they drive the
+category, with names as a fallback. Corrections are only made to **our** interpretation (e.g. a keyword rule that
+misread a label). Oddities in the game's own data (reversed dash panels, a course row with no file, unused objects)
+are shown as stored and noted, because runners need what the game actually has (user's direction).

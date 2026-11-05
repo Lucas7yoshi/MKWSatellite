@@ -28,7 +28,11 @@ public class CourseMathTests
         Assert.Equal(ObjectCategory.ItemBox, CourseObjectClassifier.Classify("CmnObj_ItemBox000_B_00"));
         Assert.Equal(ObjectCategory.RespawnArea, CourseObjectClassifier.Classify("SystemObj_RescueArea_00"));
         Assert.Equal(ObjectCategory.BoostRing, CourseObjectClassifier.Classify("CmnObj_AccelRing001_A_00"));
-        Assert.Equal(ObjectCategory.KillArea, CourseObjectClassifier.Classify("SystemObj_GlideAreaKiller_00"));
+        Assert.Equal(ObjectCategory.BoostArea, CourseObjectClassifier.Classify("SystemObj_GlideAreaKiller_00"));
+        Assert.Equal(ObjectCategory.DashPanel, CourseObjectClassifier.Classify("CmnObj_DashPlateRainbow000_K_00"));
+        Assert.Equal(ObjectCategory.GlideRamp, CourseObjectClassifier.Classify("CmnObj_RainbowGlidePlate000_C_00"));
+        // The developer label wins over the name when the database row is known.
+        Assert.Equal(ObjectCategory.DashPanel, CourseObjectClassifier.Classify("CmnObj_Mystery_00", new ActorInfo("CmnObj_Mystery_00", "PropObj", "汎用ダッシュ板(テスト)")));
     }
 
     [Fact]

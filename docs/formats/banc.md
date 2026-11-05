@@ -57,8 +57,10 @@ rail's `IsClosed`.
   facing doesn't matter. Drawn without an arrow.
 
 ## Areas
-Box areas (`PrimitiveType` Cube) are drawn as a unit cube scaled by `Scale`. **The base cube size is assumed, not
-verified**, so area extents may be off by a constant factor.
+Areas are drawn as a unit cube (or a unit-diameter circle for `PrimitiveType` Sphere/Cylinder) scaled by `Scale`.
+The 1-unit base is **inferred, not traced**: Rainbow's delete areas have scales of 500–2,100 that only make sense as
+sizes in units, and rescue areas (10×19) fit the track width. Area types and their developer labels are listed
+in scene-layers.md and `CourseObjectClassifier.SystemTypes`.
 
 ## Notable actor types (Rainbow Road / Boo Cinema)
 `CmnObj_ItemBox000_A/B_00`, `CmnObj_Coin000_A_00`, `StartPosition` (`Dynamic.StartPositionId`), `CmnObj_DashBoard000_*`, `CmnObj_GlideBoard000_*`, `CmnObj_AccelRing000_A_00`, `SystemObj_RescueArea_00` (respawn), `SystemObj_ValleyArea_00`, `SystemObj_GlideAreaKiller_00`, `Area_DeleteLinkedActor_00`, `SystemObj_HighSpeedArea_00`, course-specific objects (`CmnObj_TeresaCinema000_A_00` Boos, `SystemObj_RainbowTrain*`).

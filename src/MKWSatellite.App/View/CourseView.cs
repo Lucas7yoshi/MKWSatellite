@@ -17,7 +17,7 @@ public sealed class ViewLayers
     public bool LapPath = true, CheckpointGates = true, AllGates = false, CheckpointLabels = true;
     public bool AiRoutes = true, OtherRails = true;
     public bool ItemBoxes = true, Coins = true, Boosts = true, StartGrid = true;
-    public bool RespawnAreas = true, ValleyAreas = true, KillAreas = true, HighSpeedAreas = true, OtherAreas = false;
+    public bool RespawnAreas = true, RecoveryPoints = true, ValleyAreas = true, HighSpeedAreas = true, BoostAreas = true, RuleAreas = true, LinkAreas = false, OtherAreas = false;
     public bool Hazards = true, Fences = false, Audience = false, Scenery = false;
     public bool LayerRace = true, LayerWorld = true, LayerCourseFix = true;
     /// <summary>Colour the lap path by height instead of a flat colour.</summary>
@@ -88,7 +88,10 @@ public sealed class CourseView(PrimitiveBatch batch)
         ObjectCategory.StartPosition or ObjectCategory.LapGate => Layers.StartGrid,
         ObjectCategory.RespawnArea => Layers.RespawnAreas,
         ObjectCategory.ValleyArea => Layers.ValleyAreas,
-        ObjectCategory.KillArea => Layers.KillAreas,
+        ObjectCategory.RecoveryPoint => Layers.RecoveryPoints,
+        ObjectCategory.BoostArea => Layers.BoostAreas,
+        ObjectCategory.RuleArea => Layers.RuleAreas,
+        ObjectCategory.LinkArea => Layers.LinkAreas,
         ObjectCategory.HighSpeedArea => Layers.HighSpeedAreas,
         ObjectCategory.OtherArea => Layers.OtherAreas,
         ObjectCategory.Hazard => Layers.Hazards,
@@ -108,10 +111,10 @@ public sealed class CourseView(PrimitiveBatch batch)
         // 1. Areas (filled, underneath everything)
         foreach (var o in c.Objects.Where(o => o.IsArea && IsVisible(o)))
         {
-            var corners = AreaFootprint(o);
+            var outline = AreaFootprint(o);
             var col = Palette.ForCategory(o.Category);
-            batch.Quad(corners[0], corners[1], corners[2], corners[3], Palette.WithAlpha(col, 0x38));
-            for (var i = 0; i < 4; i++) ThickLine(corners[i], corners[(i + 1) % 4], 1.2f * upp, Palette.WithAlpha(col, 0xC0));
+            for (var i = 1; i + 1 < outline.Length; i++) batch.Triangle(outline[0], outline[i], outline[i + 1], Palette.WithAlpha(col, 0x38));
+            for (var i = 0; i < outline.Length; i++) ThickLine(outline[i], outline[(i + 1) % outline.Length], 1.2f * upp, Palette.WithAlpha(col, 0xC0));
             _pickables.Add((new PickedObject(o), 0));
         }
 
@@ -181,6 +184,10 @@ public sealed class CourseView(PrimitiveBatch batch)
                 case ObjectCategory.StartPosition or ObjectCategory.LapGate:
                     Arrow(p, fwd, MathF.Max(3f, 7 * px), col);
                     break;
+                case ObjectCategory.RecoveryPoint:
+                    Ring(p, MathF.Max(3f, 6 * px), 2 * px, col);
+                    Disc(p, MathF.Max(1f, 2 * px), col, 8);
+                    break;
                 case ObjectCategory.Hazard:
                     var s = MathF.Max(3f, 5 * px);
                     ThickLine(p + new Vector3(-s, 0, -s), p + new Vector3(s, 0, s), 1.5f * px, col);
@@ -200,15 +207,18 @@ public sealed class CourseView(PrimitiveBatch batch)
     }
 
     /// <summary>
-    /// Top-down footprint of a box area: unit cube scaled by Scale, rotated, at Translate.
-    /// The base cube size (1 unit per scale) is an assumption, not verified in code.
+    /// Top-down outline (convex polygon) of an area: a unit cube, or for Sphere/Cylinder primitives a unit-diameter
+    /// circle, scaled by Scale, rotated, at Translate. The 1-unit base size is inferred from the data (e.g. Rainbow's
+    /// delete areas have scales in the hundreds to thousands), not verified in code.
     /// </summary>
     public static Vector3[] AreaFootprint(CourseObject o)
     {
         var m = o.Rotation;
         var s = o.Actor.Scale / 2;
-        Vector3 Corner(float x, float z) => o.Position + Vector3.TransformNormal(new Vector3(x * s.X, 0, z * s.Z), m);
-        return [Corner(-1, -1), Corner(1, -1), Corner(1, 1), Corner(-1, 1)];
+        Vector3 P(float x, float z) => o.Position + Vector3.TransformNormal(new Vector3(x * s.X, 0, z * s.Z), m);
+        if (o.Primitive is "Sphere" or "Cylinder" or "Capsule")
+            return Enumerable.Range(0, 24).Select(i => P(MathF.Cos(i * MathF.Tau / 24), MathF.Sin(i * MathF.Tau / 24))).ToArray();
+        return [P(-1, -1), P(1, -1), P(1, 1), P(-1, 1)];
     }
 
     // --- primitives (all flat in X/Z) ---
@@ -285,7 +295,7 @@ public sealed class CourseView(PrimitiveBatch batch)
     private static bool PointInQuad(Vector2 p, Vector3[] q)
     {
         var inside = false;
-        for (int i = 0, j = 3; i < 4; j = i++)
+        for (int i = 0, j = q.Length - 1; i < q.Length; j = i++)
         {
             var (xi, zi, xj, zj) = (q[i].X, q[i].Z, q[j].X, q[j].Z);
             if (zi > p.Y != zj > p.Y && p.X < (xj - xi) * (p.Y - zi) / (zj - zi) + xi) inside = !inside;
