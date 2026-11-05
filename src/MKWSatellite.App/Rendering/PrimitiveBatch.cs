@@ -18,8 +18,23 @@ public sealed class PrimitiveBatch : IDisposable
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec4 aColor;
         uniform mat4 uViewProj;
+        uniform vec3 uEye;
+        uniform float uPull;
+        uniform float uAlpha;
         out vec4 vColor;
-        void main() { gl_Position = uViewProj * vec4(aPos, 1.0); vColor = aColor; }
+        void main()
+        {
+            vec3 p = aPos;
+            if (uPull > 0.0)
+            {
+                // Pull towards the camera so overlay lying on the road wins the depth test against it.
+                vec3 d = uEye - p;
+                float len = length(d);
+                if (len > 1e-4) p += d / len * min(len * 0.5, len * uPull + 0.25);
+            }
+            gl_Position = uViewProj * vec4(p, 1.0);
+            vColor = vec4(aColor.rgb, aColor.a * uAlpha);
+        }
         """;
 
     private const string FragmentSource = """
@@ -31,7 +46,7 @@ public sealed class PrimitiveBatch : IDisposable
 
     private readonly GL _gl;
     private readonly uint _program, _vao, _vbo;
-    private readonly int _viewProjLocation;
+    private readonly int _viewProjLocation, _eyeLocation, _pullLocation, _alphaLocation;
     private readonly List<Vertex> _lines = [], _triangles = [];
     private int _lineCount, _triangleCount;
 
@@ -40,6 +55,9 @@ public sealed class PrimitiveBatch : IDisposable
         _gl = gl;
         _program = CompileProgram(gl, VertexSource, FragmentSource);
         _viewProjLocation = gl.GetUniformLocation(_program, "uViewProj");
+        _eyeLocation = gl.GetUniformLocation(_program, "uEye");
+        _pullLocation = gl.GetUniformLocation(_program, "uPull");
+        _alphaLocation = gl.GetUniformLocation(_program, "uAlpha");
         _vao = gl.GenVertexArray();
         _vbo = gl.GenBuffer();
         gl.BindVertexArray(_vao);
@@ -93,19 +111,51 @@ public sealed class PrimitiveBatch : IDisposable
         _gl.BufferData<Vertex>(BufferTargetARB.ArrayBuffer, all, BufferUsageARB.DynamicDraw);
     }
 
-    public void Draw(Matrix4x4 viewProj, float lineWidth = 1f)
+    /// <summary>
+    /// Draws the batch. With an <paramref name="eye"/> (3D view) and a depth mode other than
+    /// <see cref="OverlayDepth.OnTop"/>, primitives are depth-tested against what is already in the depth buffer
+    /// (the models): hidden parts are drawn faint (<see cref="OverlayDepth.Dim"/>) or not at all.
+    /// </summary>
+    public void Draw(Matrix4x4 viewProj, float lineWidth = 1f, Vector3? eye = null, OverlayDepth depth = OverlayDepth.OnTop)
     {
         _gl.UseProgram(_program);
         unsafe { _gl.UniformMatrix4(_viewProjLocation, 1, false, (float*)&viewProj); }
         _gl.BindVertexArray(_vao);
         _gl.Enable(EnableCap.Blend);
         _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-        _gl.Disable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.CullFace);
-        if (_triangleCount > 0) _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_triangleCount);
         _gl.LineWidth(lineWidth); // core profile only guarantees width 1; thick lines are built from quads instead
-        if (_lineCount > 0) _gl.DrawArrays(PrimitiveType.Lines, _triangleCount, (uint)_lineCount);
+        var tested = eye is not null && depth != OverlayDepth.OnTop;
+        var e = eye ?? Vector3.Zero;
+        _gl.Uniform3(_eyeLocation, e.X, e.Y, e.Z);
+        _gl.Uniform1(_pullLocation, tested ? 0.004f : 0f);
+        if (!tested)
+        {
+            _gl.Disable(EnableCap.DepthTest);
+            Pass(1f);
+        }
+        else
+        {
+            _gl.Enable(EnableCap.DepthTest);
+            _gl.DepthMask(false);
+            if (depth == OverlayDepth.Dim)
+            {
+                _gl.DepthFunc(DepthFunction.Greater);
+                Pass(0.22f);
+            }
+            _gl.DepthFunc(DepthFunction.Lequal);
+            Pass(1f);
+            _gl.DepthMask(true);
+            _gl.Disable(EnableCap.DepthTest);
+        }
         _gl.BindVertexArray(0);
+    }
+
+    private void Pass(float alpha)
+    {
+        _gl.Uniform1(_alphaLocation, alpha);
+        if (_triangleCount > 0) _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_triangleCount);
+        if (_lineCount > 0) _gl.DrawArrays(PrimitiveType.Lines, _triangleCount, (uint)_lineCount);
     }
 
     internal static uint CompileProgram(GL gl, string vs, string fs)
@@ -138,4 +188,15 @@ public sealed class PrimitiveBatch : IDisposable
         _gl.DeleteVertexArray(_vao);
         _gl.DeleteProgram(_program);
     }
+}
+
+/// <summary>How overlay drawn behind course geometry is shown in 3D.</summary>
+public enum OverlayDepth
+{
+    /// <summary>Always drawn over the models.</summary>
+    OnTop,
+    /// <summary>Hidden parts drawn faint.</summary>
+    Dim,
+    /// <summary>Hidden parts not drawn.</summary>
+    Hide,
 }

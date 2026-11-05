@@ -18,6 +18,8 @@ public sealed class ViewLayers
     public bool AiRoutes = true, OtherRails = true;
     /// <summary>Bullet Bill route flags: no-finish stretches (<c>IsForbidKillerFinish</c>) and releasable points.</summary>
     public bool BulletZones = true;
+    /// <summary>3D: how overlay behind course geometry is drawn.</summary>
+    public OverlayDepth Depth = OverlayDepth.Dim;
     /// <summary>A dot on every path node (lap path, AI routes, other rails), to see what can be clicked.</summary>
     public bool Nodes = true;
     public bool ItemBoxes = true, Coins = true, Boosts = true, StartGrid = true;
@@ -117,7 +119,7 @@ public sealed class CourseView(PrimitiveBatch batch)
             _builtView = vp;
             _dirty = false;
         }
-        batch.Draw(vp);
+        batch.Draw(vp, 1f, _orbit?.Eye, Layers.Depth);
     }
 
     /// <summary>Course geometry: the actors that carry a course's stage model (e.g. <c>Stage_Cinema_A_00</c>).</summary>

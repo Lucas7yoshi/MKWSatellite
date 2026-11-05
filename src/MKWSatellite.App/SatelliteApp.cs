@@ -530,6 +530,12 @@ public sealed partial class SatelliteApp : IDisposable
             changed |= ImGui.Checkbox(label, ref v);
         }
 
+        if (_use3D)
+        {
+            var depth = (int)L.Depth;
+            ImGui.SetNextItemWidth(120 * _uiScale);
+            if (ImGui.Combo("Behind geometry", ref depth, "Draw on top\0Dim\0Hide\0")) { L.Depth = (OverlayDepth)depth; changed = true; }
+        }
         ImGui.SetNextItemWidth(120 * _uiScale);
         if (ImGui.SliderFloat("Line / marker size", ref L.LineScale, 0.5f, 4f, "%.1fx")) changed = true;
         ImGui.SetNextItemWidth(120 * _uiScale);
