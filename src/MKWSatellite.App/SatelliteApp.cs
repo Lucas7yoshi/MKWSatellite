@@ -121,7 +121,8 @@ public sealed partial class SatelliteApp : IDisposable
             var f = typeof(ViewLayers).GetField(field);
             if (f?.FieldType == typeof(bool)) f.SetValue(_view.Layers, value is "1" or "true" or "on");
             else if (f?.FieldType == typeof(float)) f.SetValue(_view.Layers, float.Parse(value, System.Globalization.CultureInfo.InvariantCulture));
-            else Console.Error.WriteLine($"--layer: no bool/float layer named {field}");
+            else if (f?.FieldType == typeof(string)) f.SetValue(_view.Layers, value);
+            else Console.Error.WriteLine($"--layer: no bool/float/string layer named {field}");
         }
         UpdateViewportRect();
         if (_options.Course is { } c)
@@ -455,8 +456,9 @@ public sealed partial class SatelliteApp : IDisposable
         (m.Layer >= 0 && ((m.Layer & 0xFF) == 1 || (m.Layer >> 8 & 0xFF) == 22)) ||
         _phiveNames?.Material(m.Material) is "AirWall" or "Valley" or "Rescue" or "Fall";
 
+    /// <summary>Volumes keep their gameplay colour in surface mode (their surface says little).</summary>
     private uint CollisionColor(CollisionMaterial m, bool bySurface) => _phiveNames is not { } n ? 0xFFAAAAAA
-        : bySurface ? Palette.ForCollisionSurface(n.SubMaterial(m.SubMaterial)) : Palette.ForCollisionMaterial(n.Material(m.Material));
+        : bySurface && !IsCollisionVolume(m) ? Palette.ForCollisionSurface(n.SubMaterial(m.SubMaterial)) : Palette.ForCollisionMaterial(n.Material(m.Material));
 
     /// <summary>Starts reading the course's collision on a worker when the layer is on; uploads it when done.</summary>
     private void UpdateCollision()
@@ -494,7 +496,14 @@ public sealed partial class SatelliteApp : IDisposable
         UpdateCollision();
         if (_collision is null || _view.Course is null || !_view.Layers.Collision) return;
         _collision.SetColorMode(_view.Layers.CollisionBySurface);
-        _collision.Draw(cam.ViewProjection, LightDir, _view.Layers.CollisionOpacity, _view.Layers.CollisionVolumes, _view.Layers.CollisionEdges);
+        if (_collision.Mesh is { } mesh && _phiveNames is { } names)
+        {
+            var h = _view.Layers.CollisionHighlight;
+            _collision.SetHighlighted(string.IsNullOrEmpty(h) ? []
+                : Enumerable.Range(0, mesh.Materials.Count).Where(i => IsCollisionVolume(mesh.Materials[i]) && names.Material(mesh.Materials[i].Material) == h));
+        }
+        _collision.Draw(cam.ViewProjection, LightDir, _view.Layers.CollisionOpacity, _view.Layers.CollisionVolumes, _view.Layers.CollisionEdges,
+            _view.Layers.CollisionVolumeOpacity);
     }
 
     private Vector2 _collisionHoverAt = new(-1);
@@ -816,6 +825,22 @@ public sealed partial class SatelliteApp : IDisposable
         toggle("Volumes (respawn, valley, air walls...)", ref L.CollisionVolumes);
         toggle("Triangle edges", ref L.CollisionEdges);
         if (_collision?.Mesh is not { } mesh || _phiveNames is not { } names) return;
+        if (L.CollisionVolumes)
+        {
+            ImGui.SetNextItemWidth(120 * _uiScale);
+            ImGui.SliderFloat("Volume opacity", ref L.CollisionVolumeOpacity, 0.05f, 0.9f, "%.2f");
+            // Volume materials present in this course; the chosen one is drawn stronger and through walls.
+            var kinds = mesh.Materials.Where(IsCollisionVolume).Select(m => names.Material(m.Material)).Distinct().Order().ToList();
+            ImGui.SetNextItemWidth(120 * _uiScale);
+            if (ImGui.BeginCombo("Highlight", string.IsNullOrEmpty(L.CollisionHighlight) ? "(none)" : L.CollisionHighlight))
+            {
+                if (ImGui.Selectable("(none)", string.IsNullOrEmpty(L.CollisionHighlight))) L.CollisionHighlight = "";
+                foreach (var k in kinds)
+                    if (ImGui.Selectable(k, k == L.CollisionHighlight)) L.CollisionHighlight = k;
+                ImGui.EndCombo();
+            }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Draws this kind of volume stronger, with light edges, and faintly through walls.");
+        }
         if (!ImGui.TreeNode($"Materials ({mesh.Materials.Count})###colmats")) return;
         // One row per name in the current colour mode; unticking hides those triangles.
         var counts = new Dictionary<int, int>();

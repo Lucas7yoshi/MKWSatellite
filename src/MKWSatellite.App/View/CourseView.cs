@@ -40,7 +40,9 @@ public sealed class ViewLayers
     public bool WorldPieces = true;
     /// <summary>Collision mesh (Phive) coloured by material or surface; volumes are sensors, Valley and AirWall.</summary>
     public bool Collision = false, CollisionVolumes = true, CollisionEdges = true, CollisionBySurface = false;
-    public float CollisionOpacity = 1f;
+    public float CollisionOpacity = 1f, CollisionVolumeOpacity = 0.35f;
+    /// <summary>Gameplay material whose volumes are highlighted (drawn stronger and through walls); empty = none.</summary>
+    public string CollisionHighlight = "Rescue";
     /// <summary>Draw the 2D markers for objects that are shown as models.</summary>
     public bool MarkersOnModels = true;
     /// <summary>Multiplier for line widths and marker sizes.</summary>

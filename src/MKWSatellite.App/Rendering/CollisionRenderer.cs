@@ -38,29 +38,36 @@ public sealed class CollisionRenderer : IDisposable
         uniform vec3 uLightDir;
         uniform float uOpacity;
         uniform float uEdges;
+        uniform int uPass;          // 0 all, 1 skip highlighted, 2 highlighted only
+        uniform float uEdgeBright;  // 1: light, wider edges (highlighted volumes)
         out vec4 FragColor;
         void main()
         {
             if (vColor.a < 0.01) discard;
+            // Highlighted triangles carry alpha 254/255 as a marker.
+            bool marked = vColor.a < 0.998;
+            if ((uPass == 1 && marked) || (uPass == 2 && !marked)) discard;
             vec3 n = normalize(vNormal);
             float diffuse = abs(dot(n, normalize(-uLightDir)));
             vec3 c = vColor.rgb * (0.45 + 0.55 * diffuse);
             // Thin dark triangle edges (barycentric distance in screen space).
             vec3 d = fwidth(vBary);
-            vec3 e = smoothstep(vec3(0.0), d * 1.2, vBary);
+            vec3 e = smoothstep(vec3(0.0), d * mix(1.2, 2.5, uEdgeBright), vBary);
             float edge = 1.0 - min(min(e.x, e.y), e.z);
-            c = mix(c, c * 0.45, edge * uEdges);
-            FragColor = vec4(c, vColor.a * uOpacity);
+            c = mix(c, mix(c * 0.45, vec3(1.0), uEdgeBright), edge * max(uEdges, uEdgeBright));
+            float a = uOpacity * mix(1.0, 3.0, edge * uEdgeBright);
+            FragColor = vec4(c, min(a, 1.0));
         }
         """;
 
     private readonly GL _gl;
     private readonly uint _program, _vao, _vbo, _colorVbo;
-    private readonly int _uViewProj, _uLight, _uOpacity, _uEdges;
+    private readonly int _uViewProj, _uLight, _uOpacity, _uEdges, _uPass, _uEdgeBright;
     private CollisionMesh? _mesh;
     private int[] _order = [];      // draw order: triangle indices, solid first
     private int _solidCount;        // triangles in the solid range
     private readonly HashSet<int> _hiddenMaterials = [];
+    private readonly HashSet<int> _highlighted = [];
 
     public CollisionMesh? Mesh => _mesh;
     public bool HasData => _mesh is not null;
@@ -77,6 +84,8 @@ public sealed class CollisionRenderer : IDisposable
         _uLight = gl.GetUniformLocation(_program, "uLightDir");
         _uOpacity = gl.GetUniformLocation(_program, "uOpacity");
         _uEdges = gl.GetUniformLocation(_program, "uEdges");
+        _uPass = gl.GetUniformLocation(_program, "uPass");
+        _uEdgeBright = gl.GetUniformLocation(_program, "uEdgeBright");
         _vao = gl.GenVertexArray();
         _vbo = gl.GenBuffer();
         _colorVbo = gl.GenBuffer();
@@ -88,6 +97,20 @@ public sealed class CollisionRenderer : IDisposable
         _order = [];
         _solidCount = 0;
         _hiddenMaterials.Clear();
+        _highlighted.Clear();
+    }
+
+    /// <summary>
+    /// Materials whose volumes are highlighted: drawn stronger, with light edges, and faintly through anything in
+    /// front of them.
+    /// </summary>
+    public void SetHighlighted(IEnumerable<int> materials)
+    {
+        var set = materials.ToHashSet();
+        if (set.SetEquals(_highlighted)) return;
+        _highlighted.Clear();
+        _highlighted.UnionWith(set);
+        UploadColors();
     }
 
     public bool IsHidden(int material) => _hiddenMaterials.Contains(material);
@@ -109,6 +132,7 @@ public sealed class CollisionRenderer : IDisposable
     {
         _mesh = mesh;
         _hiddenMaterials.Clear();
+        _highlighted.Clear();
         var n = mesh.TriangleCount;
         var solid = new List<int>(n);
         var volume = new List<int>();
@@ -162,7 +186,9 @@ public sealed class CollisionRenderer : IDisposable
         {
             var m = mesh.TriangleMaterial[_order[i]];
             if (!cache.TryGetValue(m, out var c))
-                cache[m] = c = _hiddenMaterials.Contains(m) ? 0u : m < 0 ? 0xFF808080 : ColorOf(mesh.Materials[m], BySurface);
+                cache[m] = c = _hiddenMaterials.Contains(m) ? 0u : m < 0 ? 0xFF808080
+                    : _highlighted.Contains(m) ? ColorOf(mesh.Materials[m], BySurface) & 0x00FFFFFF | 0xFE000000
+                    : ColorOf(mesh.Materials[m], BySurface);
             colors[3 * i] = colors[3 * i + 1] = colors[3 * i + 2] = c;
         }
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _colorVbo);
@@ -173,13 +199,15 @@ public sealed class CollisionRenderer : IDisposable
     /// Draws the solid range and optionally the volumes. Opaque when <paramref name="opacity"/> is 1 (pulled slightly
     /// towards the camera so it wins over coplanar visual geometry), blended otherwise.
     /// </summary>
-    public unsafe void Draw(Matrix4x4 viewProj, Vector3 lightDir, float opacity, bool volumes, bool edges)
+    public unsafe void Draw(Matrix4x4 viewProj, Vector3 lightDir, float opacity, bool volumes, bool edges, float volumeOpacity = 0.35f)
     {
         if (_mesh is null || _order.Length == 0) return;
         _gl.UseProgram(_program);
         _gl.UniformMatrix4(_uViewProj, 1, false, (float*)&viewProj);
         _gl.Uniform3(_uLight, lightDir.X, lightDir.Y, lightDir.Z);
         _gl.Uniform1(_uEdges, edges ? 1f : 0f);
+        _gl.Uniform1(_uPass, 0);
+        _gl.Uniform1(_uEdgeBright, 0f);
         _gl.BindVertexArray(_vao);
         _gl.Enable(EnableCap.DepthTest);
         _gl.DepthFunc(DepthFunction.Lequal);
@@ -197,12 +225,29 @@ public sealed class CollisionRenderer : IDisposable
         _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)(_solidCount * 3));
         if (volumes && _order.Length > _solidCount)
         {
-            // Volumes are always see-through.
+            // Volumes are always see-through. Highlighted ones: faint where hidden, strong where visible.
             _gl.Enable(EnableCap.Blend);
             _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
             _gl.DepthMask(false);
-            _gl.Uniform1(_uOpacity, 0.35f);
-            _gl.DrawArrays(PrimitiveType.Triangles, _solidCount * 3, (uint)((_order.Length - _solidCount) * 3));
+            var first = _solidCount * 3;
+            var count = (uint)((_order.Length - _solidCount) * 3);
+            var highlight = _highlighted.Count > 0;
+            _gl.Uniform1(_uPass, highlight ? 1 : 0);
+            _gl.Uniform1(_uOpacity, highlight ? volumeOpacity * 0.5f : volumeOpacity);
+            _gl.DrawArrays(PrimitiveType.Triangles, first, count);
+            if (highlight)
+            {
+                _gl.Uniform1(_uPass, 2);
+                _gl.Uniform1(_uEdgeBright, 1f);
+                _gl.DepthFunc(DepthFunction.Greater);
+                _gl.Uniform1(_uOpacity, 0.12f);
+                _gl.DrawArrays(PrimitiveType.Triangles, first, count);
+                _gl.DepthFunc(DepthFunction.Lequal);
+                _gl.Uniform1(_uOpacity, Math.Clamp(volumeOpacity * 1.6f, 0.3f, 0.9f));
+                _gl.DrawArrays(PrimitiveType.Triangles, first, count);
+                _gl.Uniform1(_uPass, 0);
+                _gl.Uniform1(_uEdgeBright, 0f);
+            }
         }
         _gl.DepthMask(true);
         _gl.Disable(EnableCap.Blend);

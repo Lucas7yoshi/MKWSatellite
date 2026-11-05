@@ -107,9 +107,12 @@ Reading a course takes 0.1–0.5 s. DK Summit's snowy road is `Slip`/`Snow`, whi
 - Opacity slider and triangle edges.
 - Volumes (sensor layers, the Valley layer, AirWall/Valley/Rescue/Fall materials) are drawn see-through and can be
   hidden.
+- Volumes keep their gameplay colour in surface mode. "Highlight" (default `Rescue`) draws one volume material
+  stronger, with light edges and faintly through walls; "Volume opacity" sets the others. `Rescue` is also used on
+  solid-looking meshes (e.g. Rainbow Road's clouds and the space station's undersides), not only on boxes.
 - A per-material list with counts; unticking a material hides it.
 - Hovering shows the material, surface, tags, layer and position under the cursor.
-- Screenshots: `--layer Collision=1 [--layer CollisionBySurface=1]`.
+- Screenshots: `--layer Collision=1 [--layer CollisionBySurface=1] [--layer CollisionHighlight=Rescue]`.
 
 ## Vehicle hitboxes (bonus, **unverified**)
 
