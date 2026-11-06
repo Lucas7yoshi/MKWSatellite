@@ -280,7 +280,8 @@ public sealed class CourseView(PrimitiveBatch batch)
         }
 
         // 2b. Progress zones: the game places you on segment a->b when you are between the two gate planes and inside
-        // the gates' width/height interpolated along the segment, so the zone is the gates joined corner to corner.
+        // the gates' width/height interpolated along the segment, with the gate frame slerped, so on bends the sides
+        // bow outward (LapZone; LerpType can make a side straight).
         if (Layers.LapPath && Layers.ProgressZones)
         {
             var byPoint = new Dictionary<BancRailPoint, LapPoint>(ReferenceEqualityComparer.Instance);
@@ -289,16 +290,20 @@ public sealed class CourseView(PrimitiveBatch batch)
             var edge = Palette.WithAlpha(Palette.ProgressZone, 0xB0);
             void Zone(LapPoint a, LapPoint b)
             {
-                var ga = a.GateCorners();
-                var gb = b.GateCorners();
-                batch.Quad(ga[0], ga[1], gb[1], gb[0], fill); // floor
-                Line(ga[0], gb[0], 1.5f, edge);
-                Line(ga[1], gb[1], 1.5f, edge);
-                if (!is3D) return;
-                batch.Quad(ga[0], gb[0], gb[3], ga[3], fill); // sides
-                batch.Quad(ga[1], gb[1], gb[2], ga[2], fill);
-                Line(ga[3], gb[3], 1f, edge);
-                Line(ga[2], gb[2], 1f, edge);
+                var s = LapZone.Sections(a, b);
+                for (var k = 1; k < s.Count; k++)
+                {
+                    var ga = s[k - 1];
+                    var gb = s[k];
+                    batch.Quad(ga[0], ga[1], gb[1], gb[0], fill); // floor
+                    Line(ga[0], gb[0], 1.5f, edge);
+                    Line(ga[1], gb[1], 1.5f, edge);
+                    if (!is3D) continue;
+                    batch.Quad(ga[0], gb[0], gb[3], ga[3], fill); // sides
+                    batch.Quad(ga[1], gb[1], gb[2], ga[2], fill);
+                    Line(ga[3], gb[3], 1f, edge);
+                    Line(ga[2], gb[2], 1f, edge);
+                }
             }
             foreach (var rail in c.Rails)
             {

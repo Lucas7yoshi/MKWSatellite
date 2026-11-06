@@ -123,6 +123,21 @@ public sealed record LapPoint(BancRailPoint Point, CourseRail Rail, int Index)
     public bool IsLapCheck => Point.Dynamic?.Get<bool>("IsLapCheck") == true;
     public int? ChangeId => Point.Dynamic?.TryGetValue("ChangeId", out var v) == true && v is int i ? i : null;
 
+    /// <summary>
+    /// <c>Dynamic.LerpType</c> (lap point +0x530, read by 0x7102990F20): which sides of the progress zone run straight
+    /// from this gate's edge to the next gate's edge instead of following the interpolated frame. 0 = neither
+    /// (default), 1 = both, 2 = the +right side, 3 = the -right side. A side is straight only when both gates of the
+    /// segment ask for it (traced in <c>RailPoint_IsInSegmentVolume</c>).
+    /// </summary>
+    public int LerpType => Point.Dynamic?.TryGetValue("LerpType", out var v) == true && v is IConvertible c ? c.ToInt32(null) : 0;
+
+    /// <summary>The gate's frame: centre, right/up/forward rows of <c>Rotate</c> and the half-extents.</summary>
+    public (Vector3 Centre, Quaternion Rotation, float HalfWidth, float HalfHeight) GateFrame()
+    {
+        var m = CourseMath.EulerXyz(Point.Rotate);
+        return (GateCentre, Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(m)), RectSize.X, RectSize.Y);
+    }
+
     /// <summary>Gate centre: the node moved by <c>RectOffset</c> along the point's local X (right) and Y (up).</summary>
     public Vector3 GateCentre
     {
