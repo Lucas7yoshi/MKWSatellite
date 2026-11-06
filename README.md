@@ -23,12 +23,16 @@ item boxes, AI routes and, later, collision surfaces.
 
 ## Pointing it at your dump
 
-Paths are machine-specific and must never be committed. Use one of, in priority order:
+The easiest way: start the viewer, open **Game data** at the top of the left panel, enter your romfs folder(s) and
+press **Save and load**. That writes `mkwsat.local.json` (next to the executable unless one already exists in the
+working directory) and loads the game straight away; the command-line tools read the same file.
+
+Paths are machine-specific and must never be committed. The viewer and tools look in this order:
 
 1. Command line: `mkwsat --romfs <base romfs> [--romfs <update romfs>] info`, or `MKWSatellite <base romfs> [<update romfs>]`
 2. Environment variable `MKWSAT_ROMFS` (paths separated by `;` on Windows, `:` elsewhere; base first)
-3. `mkwsat.local.json` in the working directory or next to the executable (git-ignored). Copy
-   `mkwsat.local.example.json` and fill it in.
+3. `mkwsat.local.json` in the working directory or next to the executable (git-ignored). Write it from the viewer,
+   or copy `mkwsat.local.example.json` and fill it in.
 
 Later romfs layers override earlier ones, which is how game updates work (an update romfs only contains changed files).
 

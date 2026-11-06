@@ -89,6 +89,16 @@ public sealed class CourseView(PrimitiveBatch batch)
         _dirty = true;
     }
 
+    /// <summary>Shows no course (e.g. while the game data is being switched).</summary>
+    public void ClearCourse()
+    {
+        Course = null;
+        Selected = null;
+        Hovered = null;
+        _lookAhead.Clear();
+        _dirty = true;
+    }
+
     private static Pickable? Remap(Pickable? p, CourseScene c) => p switch
     {
         PickedObject o => c.Objects.FirstOrDefault(x => ReferenceEquals(x.Actor.Raw, o.Object.Actor.Raw)) is { } n ? new PickedObject(n) : null,

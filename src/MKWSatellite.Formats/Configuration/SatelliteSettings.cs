@@ -7,7 +7,8 @@ namespace MKWSatellite.Formats.Configuration;
 /// Where the user's game dump lives. Never hard-code or commit these paths; they are machine-specific.
 /// Resolution order: explicit argument, then the <c>MKWSAT_ROMFS</c> environment variable
 /// (paths separated by the platform path separator, base first), then <c>mkwsat.local.json</c>
-/// in the working directory or next to the executable (git-ignored; see <c>mkwsat.local.example.json</c>).
+/// in the working directory or next to the executable (git-ignored; see <c>mkwsat.local.example.json</c>). The viewer
+/// can create and edit that file (<see cref="Save"/>).
 /// </summary>
 public sealed class SatelliteSettings
 {
@@ -26,7 +27,41 @@ public sealed class SatelliteSettings
     [JsonIgnore]
     public string Source { get; private set; } = "none";
 
+    /// <summary>The settings file these came from, or null when they came from the command line or environment.</summary>
+    [JsonIgnore]
+    public string? FilePath { get; private set; }
+
     public bool IsConfigured => Romfs.Count > 0;
+
+    /// <summary>
+    /// Where <see cref="Save"/> writes: the file the settings were loaded from, an existing settings file, or a new
+    /// one next to the executable.
+    /// </summary>
+    public string SavePath => FilePath ?? FindFile() ?? Path.Combine(AppContext.BaseDirectory, FileName);
+
+    /// <summary>Writes the settings file (romfs list and mod output), makes it this instance's source, and returns its path.</summary>
+    public string Save()
+    {
+        var path = SavePath;
+        var json = JsonSerializer.Serialize(new SatelliteSettings { Romfs = [.. Romfs], ModOutput = string.IsNullOrWhiteSpace(ModOutput) ? null : ModOutput },
+            new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+        File.WriteAllText(path, json + Environment.NewLine);
+        FilePath = path;
+        Source = path;
+        return path;
+    }
+
+    /// <summary>Checks that a folder looks like an extracted romfs (has <c>Banc</c> or <c>RSDB</c>); returns a problem or null.</summary>
+    public static string? CheckRomfs(string dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) return "empty path";
+        if (!Directory.Exists(dir)) return "folder not found";
+        if (Directory.Exists(Path.Combine(dir, "Banc")) || Directory.Exists(Path.Combine(dir, "RSDB"))) return null;
+        return Directory.Exists(Path.Combine(dir, "romfs")) ? "has a romfs subfolder; use that instead" : "no Banc or RSDB folder (not a romfs?)";
+    }
+
+    private static string? FindFile() =>
+        new[] { Environment.CurrentDirectory, AppContext.BaseDirectory }.Select(d => Path.Combine(d, FileName)).FirstOrDefault(File.Exists);
 
     public static SatelliteSettings Load(IReadOnlyList<string>? explicitRomfs = null)
     {
@@ -41,12 +76,11 @@ public sealed class SatelliteSettings
                 Source = EnvVar,
             };
 
-        foreach (var dir in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
+        if (FindFile() is { } path)
         {
-            var path = Path.Combine(dir, FileName);
-            if (!File.Exists(path)) continue;
             var s = JsonSerializer.Deserialize<SatelliteSettings>(File.ReadAllText(path)) ?? new SatelliteSettings();
             s.Source = path;
+            s.FilePath = path;
             return s;
         }
         return new SatelliteSettings();

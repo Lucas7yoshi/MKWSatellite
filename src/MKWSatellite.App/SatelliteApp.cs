@@ -99,21 +99,8 @@ public sealed partial class SatelliteApp : IDisposable
         if (!_options.IsScreenshot && !_options.SizeGiven && scale > 1.01f) ResizeWindow(scale);
         ApplyUiScale(scale);
         foreach (var m in _input.Mice) m.Scroll += OnScroll;
-        OpenGame();
+        OpenGame(SatelliteSettings.Load(_options.Romfs.Count > 0 ? _options.Romfs.ToArray() : null));
         InitEditing();
-        if (_fs is not null)
-        {
-            _models = new ModelLibrary(_gl, _fs);
-            _view.HasModel = o => _models?.Get(o.Type) is not null;
-            var resolver = _models.Resolver;
-            _view.AreaShapeOf = resolver.AreaShapeOf;
-            if (TerrainRenderer.Exists(_fs)) _terrain = new TerrainRenderer(_gl, _fs);
-            if (_fs.Exists(PhiveNames.Path))
-            {
-                try { _phiveNames = new PhiveNames(_fs); } catch (InvalidDataException) { }
-                _collision = new CollisionRenderer(_gl) { IsVolume = IsCollisionVolume, ColorOf = CollisionColor };
-            }
-        }
         _use3D = _options.View3D;
         if (_options.NoModels) _view.Layers.Models = false;
         foreach (var (field, value) in _options.Layers)
@@ -191,9 +178,11 @@ public sealed partial class SatelliteApp : IDisposable
 
     private void ApplyTextScale() => ImGui.GetIO().FontGlobalScale = _textScale * (_builtInFont ? _uiScale : 1);
 
-    private void OpenGame()
+    /// <summary>Opens the game data the settings point at, with the model/terrain/collision renderers that read it.</summary>
+    private void OpenGame(SatelliteSettings settings)
     {
-        _settings = SatelliteSettings.Load(_options.Romfs.Count > 0 ? _options.Romfs.ToArray() : null);
+        _settings = settings;
+        _fsError = null;
         if (!_settings.IsConfigured) return;
         try
         {
@@ -202,7 +191,51 @@ public sealed partial class SatelliteApp : IDisposable
             _loader = new CourseLoader(_fs);
             _raceFiles = _loader.ListRaceScenes();
         }
-        catch (Exception e) { _fsError = e.Message; }
+        catch (Exception e)
+        {
+            _fsError = e.Message;
+            _fs = null;
+            _loader = null;
+            _raceFiles = [];
+            return;
+        }
+        _models = new ModelLibrary(_gl, _fs);
+        _view.HasModel = o => _models?.Get(o.Type) is not null;
+        _view.AreaShapeOf = _models.Resolver.AreaShapeOf;
+        if (TerrainRenderer.Exists(_fs)) _terrain = new TerrainRenderer(_gl, _fs);
+        if (_fs.Exists(PhiveNames.Path))
+        {
+            try { _phiveNames = new PhiveNames(_fs); } catch (InvalidDataException) { }
+            _collision = new CollisionRenderer(_gl) { IsVolume = IsCollisionVolume, ColorOf = CollisionColor };
+        }
+    }
+
+    /// <summary>Drops the current course and everything read from the game data (before switching to other settings).</summary>
+    private void CloseGame()
+    {
+        _view.ClearCourse();
+        _courseFile = null;
+        _courseError = null;
+        _pendingCourse = null;
+        _history = new();
+        _pieces = [];
+        _rulerStart = _rulerEnd = null;
+        _collisionTask = null;
+        _collisionFor = _collisionStatus = _collisionHover = null;
+        _collisionErrors = [];
+        _models?.Dispose();
+        _models = null;
+        _terrain?.Dispose();
+        _terrain = null;
+        _collision?.Dispose();
+        _collision = null;
+        _phiveNames = null;
+        _view.HasModel = null;
+        _view.AreaShapeOf = null;
+        _fs = null;
+        _loader = null;
+        _raceFiles = [];
+        _resourceVersion = null;
     }
 
     private void LoadCourse(string file, bool force = false)
@@ -681,15 +714,14 @@ public sealed partial class SatelliteApp : IDisposable
         ImGui.SetNextWindowPos(Vector2.Zero);
         ImGui.SetNextWindowSize(new Vector2(LeftPanelWidth, h));
         ImGui.Begin("Courses", ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse);
-        if (!_settings.IsConfigured)
+        if (_fsError is not null) ImGui.TextColored(new Vector4(1, 0.4f, 0.4f, 1), _fsError);
+        DrawSettings();
+        if (_fs is null)
         {
-            ImGui.TextWrapped($"No romfs configured. Pass it as an argument, set {SatelliteSettings.EnvVar}, " +
-                              $"or create {SatelliteSettings.FileName} (see mkwsat.local.example.json).");
             ImGui.End();
             return;
         }
-        if (_fsError is not null) ImGui.TextColored(new Vector4(1, 0.4f, 0.4f, 1), _fsError);
-        ImGui.TextDisabled($"romfs layers: {_fs?.Layers.Count}   Product.{_resourceVersion}");
+        ImGui.TextDisabled($"romfs layers: {_fs.Layers.Count}   Product.{_resourceVersion}");
         if (_courseError is not null) ImGui.TextColored(new Vector4(1, 0.4f, 0.4f, 1), _courseError);
 
         ImGui.SetNextItemWidth(-1);
