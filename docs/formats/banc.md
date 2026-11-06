@@ -55,7 +55,8 @@ rail's `IsClosed`.
   - Locating a racer (`0x7100AAD950`): for each segment a→b, t = d_a / (d_a - d_b) with d = signed distance to the
     gate plane (through the centre, normal = forward row); t must be in [0, 1]. Then `RailPoint_IsInSegmentVolume`
     (0x71007F34D0, margin 0) checks |dot(right, p - centre(t))| <= lerp(half-width) and dot(up, ...) >= -lerp(height)
-    (upper bound optional), with centre and half-extents lerped and the rotation slerped (quaternions). Of the passing
+    (upper bound only when a per-racer byte at +0xD0C is set, read in `LapProgress_Update` 0x71005BDA04; its writer
+    and meaning are **unverified**), with centre and half-extents lerped and the rotation slerped (quaternions). Of the passing
     segments the nearest point wins.
   - So on a bend the zone's sides **bow outward** past the straight lines between the gate corners (at mid-segment
     the half-width along the chord grows by about 1/cos(θ/2) for a turn of θ). The viewer draws this
@@ -64,7 +65,12 @@ rail's `IsClosed`.
   - `Dynamic.LerpType` (MurmurHash3 0x3C0AED52, stored at +0x530 by the lap Dynamic parser `0x7102990F20`) makes a
     side straight: 1 = both sides, 2 = the +right side, 3 = the -right side, 0/absent = neither. A side is straight
     only when **both** gates of the segment ask for it; it is then the plane through the two gates' edges containing
-    the interpolated up axis. 1.8 race scenes use it on short runs of 1-10 nodes (values 1-3 only).
+    the interpolated up axis (normalised by `0x7100ABC7C0`; a zero-length normal falls back to the curved test).
+    1.8 race scenes use it on short runs of 1-10 nodes (values 1-3 only).
+  - Re-checked: `RailPoint_FindSegmentContaining` computes d with the forward row (+0x50) and centre (+0x18), skips
+    the segment when d_a - d_b <= 0, and calls the volume test through vtable +0x40, whose default is
+    `RailPoint_IsInSegmentVolume` itself (pointer 0x71036F2770); its inlined copy matches. `LapProgress_Update`
+    inlines the same search.
   - Being in no zone at all marks the racer's lap position invalid and leads to a Lakitu rescue (out-of-bounds.md,
     "Lap-out").
   - Confirmed in game (user, 2026-11-05): driving around the old half-size, offset/2 gates at SFC Mario Circuit G

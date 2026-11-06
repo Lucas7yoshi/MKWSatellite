@@ -69,3 +69,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | Licence: GPL-3.0 (`LICENSE`, D19). README rewritten with the author's note and a feature list; packages ship `LICENSE`. |
 | 2026-11-05 | CI: `.github/workflows/build.yml` builds and tests on every push/PR, uploads framework-dependent viewer builds per OS, and on a `v*` tag drafts a GitHub release from `dist/publish.ps1`. Release archives no longer nest a wrapper folder. |
 | 2026-11-05 | Lap progress zones follow the game's slerped gate frame, so they bow outward on bends instead of joining gate corners with straight lines (user report: zone looked short of the wall in first person). `Dynamic.LerpType` traced as the per-side straight-edge switch. |
+| 2026-11-05 | Version 0.0.3 (curved lap progress zones). |

@@ -16,7 +16,8 @@ public static class LapZone
     /// <summary>
     /// Cross-sections of the zone from gate a (t = 0) to gate b (t = 1), each as four corners in the order of
     /// <see cref="LapPoint.GateCorners"/> (bottom-left, bottom-right, top-right, top-left). The top is drawn at +h for
-    /// reference; the lap tracker does not bound the zone from above.
+    /// reference: the tracker only bounds it from above when a per-racer byte (+0xD0C, read in LapProgress_Update) is
+    /// set, which is not traced (unverified).
     /// </summary>
     public static List<Vector3[]> Sections(LapPoint a, LapPoint b, float maxStepDegrees = 3f, int maxSteps = 32)
     {
