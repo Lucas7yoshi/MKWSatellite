@@ -11,7 +11,7 @@
 >
 > The remainder of this README is written by Claude, I am releasing this repo as GPL 3 in line with switch toolbox
 > which was used as reference for formats by Claude, and you are more than welcome to pilfer this, and use the
-> information its documented in docs/ from IDA and so on to build some more polished, with or without "credit" (which
+> information its documented in docs/ from IDA and so on to build something more polished, with or without "credit" (which
 > is arguably a bit silly given im just the guinea pig testing it for the most part and giving it IDA).
 
 ## Features
