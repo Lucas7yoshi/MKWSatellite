@@ -108,6 +108,14 @@ public sealed partial class SatelliteApp : IDisposable
         InitEditing();
         _firstPerson = _options.FirstPerson;
         _use3D = _options.View3D || _firstPerson;
+        // The last camera style used, unless the command line picks one; screenshots stay as asked.
+        if (!_options.IsScreenshot && !_use3D)
+            (_use3D, _firstPerson) = SatelliteSettings.ReadFile()?.ViewMode switch
+            {
+                "3d" => (true, false),
+                "firstperson" => (true, true),
+                _ => (false, false),
+            };
         if (_options.NoModels) _view.Layers.Models = false;
         foreach (var (field, value) in _options.Layers)
         {
@@ -456,9 +464,16 @@ public sealed partial class SatelliteApp : IDisposable
             _orbit.Target = eye + _orbit.Forward * d;
             _orbit.Distance = d;
         }
+        var changed = use3D != _use3D || firstPerson != _firstPerson;
         _use3D = use3D;
         _firstPerson = firstPerson;
         _view.Invalidate();
+        if (changed && !_options.IsScreenshot)
+        {
+            var mode = firstPerson ? "firstperson" : use3D ? "3d" : "topdown";
+            try { SatelliteSettings.UpdateFile(s => s.ViewMode = mode); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.Error.WriteLine($"Could not save view mode: {e.Message}"); }
+        }
     }
 
     private bool InViewport(Vector2 p) =>
@@ -824,13 +839,18 @@ public sealed partial class SatelliteApp : IDisposable
         PickedLapPoint l => $"Lap path node {l.Point.Index}" + (l.Point.CheckPoint is { } cp ? $"\nCheckPoint {cp:0}" : ""),
         PickedRailPoint r => $"{r.Rail.Info.Label} ({r.Rail.Kind}) node {r.Index}/{r.Rail.Rail.Points.Count}, {r.Rail.Layer}" +
             (r.Rail.Kind == RailKinds.Grind ? $"\n{RailKinds.GrindTypeLabel(r.Rail.GrindType)}" : "") +
-            BulletNote(r.Rail.Rail.Points[r.Index].Dynamic),
+            BulletNote(r.Rail, r.Index),
         _ => "",
     };
 
-    private static string BulletNote(BymlDict? d) =>
-        (d?.Get<bool>("IsForbidKillerFinish") == true ? "\nBullet Bill can't end until the next node" : "") +
-        (d?.Get<bool>("IsKillerReleasable") == true ? "\nIsKillerReleasable" : "");
+    private static string BulletNote(CourseRail rail, int i)
+    {
+        var d = rail.Rail.Points[i].Dynamic;
+        var lookAhead = rail.Kind == RailKinds.Route ? BulletBillRules.LookAheadReason(rail.Rail.Points, rail.Rail.IsClosed, i) : null;
+        return (d?.Get<bool>("IsForbidKillerFinish") == true ? "\nBullet Bill can't end until the next node (IsForbidKillerFinish)" : "") +
+               (lookAhead is not null ? "\n" + lookAhead : "") +
+               (d?.Get<bool>("IsKillerReleasable") == true ? "\nIsKillerReleasable" : "");
+    }
 
     private void DrawLeftPanel()
     {

@@ -22,7 +22,8 @@ public sealed class ViewLayers
     public bool GrindRails = true, FenceGrindRails = true;
     /// <summary>Bullet Bill route flags: no-finish stretches (<c>IsForbidKillerFinish</c>) and releasable points.</summary>
     public bool BulletZones = true;
-    /// <summary>Hide every AI route except Bullet-Bill-only branches (<c>IsOnlyKillerInItem</c> on the first point).</summary>
+    /// <summary>Draw only Bullet-Bill-only branches (<c>IsOnlyKillerInItem</c> on the first point); other routes keep
+    /// just their Bullet Bill zones.</summary>
     public bool BulletRoutesOnly = false;
     /// <summary>3D: how overlay behind course geometry is drawn.</summary>
     public OverlayDepth Depth = OverlayDepth.Dim;
@@ -235,7 +236,9 @@ public sealed class CourseView(PrimitiveBatch batch)
                 : Layers.OtherRails && Palette.ShowRail(r.Kind);
             if (!on) continue;
             // The flag is only ever on a branch's first point (all 355 such rails in 1.8), so it marks the whole rail.
-            if (isRoute && Layers.BulletRoutesOnly && r.Rail.Points.FirstOrDefault()?.Dynamic?.Get<bool>("IsOnlyKillerInItem") != true) continue;
+            // Other routes then show only their Bullet Bill zones (Bullet Bill rides them too), not the route itself.
+            var zonesOnly = isRoute && Layers.BulletRoutesOnly && r.Rail.Points.FirstOrDefault()?.Dynamic?.Get<bool>("IsOnlyKillerInItem") != true;
+            if (zonesOnly && !Layers.BulletZones) continue;
             var px = isLap ? 4f : isRoute ? 2f : isGrind ? 3f : 2.5f;
             var kindColor = isGrind ? Palette.ForGrind(r) : Palette.ForRail(r.Kind);
             var selectedRail = Selected is PickedRailPoint sel && ReferenceEquals(sel.Rail.Rail.Raw, r.Rail.Raw);
@@ -262,6 +265,21 @@ public sealed class CourseView(PrimitiveBatch batch)
                         if (c.PointsByHash.TryGetValue(dst, out var q)) Line(pts[i].Translation, q.Translation, 10, Palette.BulletNoFinish);
                     if (next is null && pts[i].LinkTargets.Count == 0) Dot(pts[i].Translation, 6, Palette.BulletNoFinish);
                 }
+            }
+            if (zonesOnly)
+            {
+                // Keep the points behind a zone clickable (flags, or the turn / ItemType the look-ahead sees).
+                var turn = BulletBillRules.TurnRates(pts, r.Rail.IsClosed);
+                for (var i = 0; i < pts.Count; i++)
+                {
+                    var d = pts[i].Dynamic;
+                    var releasable = d?.Get<bool>("IsKillerReleasable") == true;
+                    if (releasable) Dot(pts[i].Translation, 4.5f, Palette.BulletReleasable);
+                    if (releasable || d?.Get<bool>("IsForbidKillerFinish") == true
+                        || BulletBillRules.LookAheadReason(pts, r.Rail.IsClosed, i, turn) is not null)
+                        _pickables.Add((new PickedRailPoint(r, i), 4));
+                }
+                continue;
             }
             void Seg(Vector3 a, Vector3 b)
             {

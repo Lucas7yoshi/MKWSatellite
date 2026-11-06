@@ -3,5 +3,6 @@
     "<path to extracted base game romfs>",
     "<optional: path to extracted update romfs (overrides base)>"
   ],
-  "modOutput": "<optional: mod romfs folder the viewer saves edits into; add it as the last romfs entry to load them back>"
+  "modOutput": "<optional: mod romfs folder the viewer saves edits into; add it as the last romfs entry to load them back>",
+  "viewMode": "<optional, written by the viewer: last camera style, topdown / 3d / firstperson>"
 }

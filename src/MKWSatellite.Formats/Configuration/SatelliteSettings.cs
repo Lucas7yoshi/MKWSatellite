@@ -23,6 +23,10 @@ public sealed class SatelliteSettings
     [JsonPropertyName("modOutput")]
     public string? ModOutput { get; set; }
 
+    /// <summary>Viewer camera style last used: <c>topdown</c>, <c>3d</c> or <c>firstperson</c> (not the camera position).</summary>
+    [JsonPropertyName("viewMode")]
+    public string? ViewMode { get; set; }
+
     /// <summary>Where the settings came from, for display.</summary>
     [JsonIgnore]
     public string Source { get; private set; } = "none";
@@ -41,17 +45,42 @@ public sealed class SatelliteSettings
     [JsonIgnore]
     public string SavePath => FilePath ?? FindFile() ?? Path.Combine(AppContext.BaseDirectory, FileName);
 
-    /// <summary>Writes the settings file (romfs list and mod output), makes it this instance's source, and returns its path.</summary>
+    /// <summary>Writes the settings file (romfs list and mod output), makes it this instance's source, and returns its path.
+    /// Keeps the file's viewer preferences when this instance has none.</summary>
     public string Save()
     {
         var path = SavePath;
-        var json = JsonSerializer.Serialize(new SatelliteSettings { Romfs = [.. Romfs], ModOutput = string.IsNullOrWhiteSpace(ModOutput) ? null : ModOutput },
-            SatelliteSettingsJson.Default.SatelliteSettings);
-        File.WriteAllText(path, json + Environment.NewLine);
+        Write(path, new SatelliteSettings
+        {
+            Romfs = [.. Romfs],
+            ModOutput = string.IsNullOrWhiteSpace(ModOutput) ? null : ModOutput,
+            ViewMode = ViewMode ?? ReadFile()?.ViewMode,
+        });
         FilePath = path;
         Source = path;
         return path;
     }
+
+    /// <summary>The settings file's contents, whatever the romfs source in use (the command line or environment only
+    /// replace the romfs list), or null when there is no readable file.</summary>
+    public static SatelliteSettings? ReadFile()
+    {
+        if (FindFile() is not { } path) return null;
+        try { return JsonSerializer.Deserialize(File.ReadAllText(path), SatelliteSettingsJson.Default.SatelliteSettings); }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>Changes the settings file in place (creating it next to the executable if there is none).</summary>
+    public static void UpdateFile(Action<SatelliteSettings> change)
+    {
+        var path = FindFile() ?? Path.Combine(AppContext.BaseDirectory, FileName);
+        var s = ReadFile() ?? new SatelliteSettings();
+        change(s);
+        Write(path, s);
+    }
+
+    private static void Write(string path, SatelliteSettings s) =>
+        File.WriteAllText(path, JsonSerializer.Serialize(s, SatelliteSettingsJson.Default.SatelliteSettings) + Environment.NewLine);
 
     /// <summary>Checks that a folder looks like an extracted romfs (has <c>Banc</c> or <c>RSDB</c>); returns a problem or null.</summary>
     public static string? CheckRomfs(string dir)

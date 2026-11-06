@@ -50,4 +50,14 @@ public class BulletBillRulesTests
         Assert.Equal([5, 6, 7, 8, 9], spans.Select(s => s.Segment).ToArray());
         Assert.All(spans, s => { Assert.Equal(0, s.From, 3); Assert.Equal(1, s.To, 3); });
     }
+
+    [Fact]
+    public void LookAheadReasonNamesTheTurningPointOnly()
+    {
+        var pts = Enumerable.Range(0, 11).Select(i => P(0, i * 10, 0)).Append(P(10, 100, 90)).ToList();
+        Assert.Null(BulletBillRules.LookAheadReason(pts, false, 5));
+        var why = BulletBillRules.LookAheadReason(pts, false, 10);
+        Assert.NotNull(why);
+        Assert.Contains("within 50 units", why);
+    }
 }

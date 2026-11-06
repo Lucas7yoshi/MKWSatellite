@@ -74,6 +74,23 @@ public static class BulletBillRules
         return spans;
     }
 
+    /// <summary>
+    /// Why point <paramref name="i"/> stops a Bullet Bill ending in the stretch before it (the look-ahead), or null if it
+    /// doesn't: its turn or <c>ItemType</c>, and how far back that reaches.
+    /// </summary>
+    public static string? LookAheadReason(IReadOnlyList<BancRailPoint> pts, bool closed, int i, float[]? turnRates = null)
+    {
+        var turn = MathF.Abs((turnRates ?? TurnRates(pts, closed))[i]);
+        var item = pts[i].Dynamic?.TryGetValue("ItemType", out var v) == true && v is int it && it is 1 or 2 ? (int?)it : null;
+        if (turn <= NearTurn && item is null) return null; // FarTurn > NearTurn, so this covers both checks
+        var why = new List<string>();
+        if (turn > NearTurn) why.Add($"turns {turn:0.00}°/unit (> {NearTurn})");
+        if (item is { } t) why.Add($"ItemType {t}");
+        var reach = turn > FarTurn ? FarAhead : NearAhead;
+        return $"Bullet Bill can't end within {reach:0} units before this node: {string.Join(", ", why)}" +
+               (turn > FarTurn ? $"\n(> {FarTurn}°/unit blocks {NearAhead:0}-{FarAhead:0} units back too)" : "");
+    }
+
     private static int? Next(int i, int count, bool closed) =>
         i + 1 < count ? i + 1 : closed && count > 2 ? 0 : null;
 
