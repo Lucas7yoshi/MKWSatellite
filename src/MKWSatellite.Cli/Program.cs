@@ -347,6 +347,130 @@ root.Subcommands.Add(fitCmd);
 
 // gatefit: which sign of RectOffset.X keeps lap gates off walls (surfaces well above the node) in the course model
 var gfCourses = new Argument<string[]>("courses") { Description = "Race scene name filters.", Arity = ArgumentArity.OneOrMore };
+var lzCourses = new Argument<string>("courses") { Description = "Course name part, or all." };
+var lzCmd = new Command("lapzone", "Check the drawn lap progress zones against the game's segment test (LapZone.Contains).") { lzCourses };
+lzCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var loader = new CourseLoader(fs);
+    var arg = parse.GetValue(lzCourses)!;
+    var files = loader.ListRaceScenes().Where(f => arg == "all" || f.Contains(arg, StringComparison.OrdinalIgnoreCase)).ToList();
+    int segTotal = 0, segBad = 0;
+    foreach (var file in files)
+    {
+        var course = loader.Load(file);
+        int segs = 0, bad = 0;
+        var report = new List<string>();
+        foreach (var (a, b) in LapZone.Segments(course))
+        {
+            segs++;
+            var sections = LapZone.Sections(a, b);
+            int fails = 0;
+            for (var k = 1; k < sections.Count - 1; k++)
+            {
+                var sec = sections[k];
+                var mid = (sec[0] + sec[1] + sec[2] + sec[3]) / 4;
+                foreach (var corner in new[] { sec[0], sec[1] })
+                {
+                    var nudge = (float.TryParse(Environment.GetEnvironmentVariable("LZNUDGE"), out var nv) ? nv : 0.5f) / System.Numerics.Vector3.Distance(corner, mid); var inside = System.Numerics.Vector3.Lerp(corner, mid, nudge);
+                    var outside = System.Numerics.Vector3.Lerp(corner, mid, -nudge);
+                    if (!LapZone.Contains(a, b, inside) || LapZone.Contains(a, b, outside)) { fails++; if (Environment.GetEnvironmentVariable("LZDEBUG") == "1") Console.WriteLine($"    k={k}/{sections.Count - 1} corner={corner:F2} in={LapZone.Contains(a, b, inside)} out={LapZone.Contains(a, b, outside)} sec={string.Join(" ", sec.Select(v => v.ToString("F1")))} lerp={a.LerpType}/{b.LerpType}"); }
+                }
+            }
+            if (fails == 0) continue;
+            bad++;
+            report.Add($"  {a.Index,3} -> {b.Index,3}  {fails} bad of {2 * (sections.Count - 2)} corners  at {a.Position:F0}");
+        }
+        segTotal += segs; segBad += bad;
+        if (bad > 0 || files.Count == 1)
+        {
+            Console.WriteLine($"{course.Name}: {bad}/{segs} segments with corners off the game boundary");
+            foreach (var r in report) Console.WriteLine(r);
+        }
+    }
+    Console.WriteLine($"total: {segBad}/{segTotal} segments in {files.Count} course(s); lap nodes without RectSize: {files.Sum(f => loader.Load(f).LapPoints.Count(l => l.Point.Raw.Array("RectSize") is not { Count: >= 2 }))}");
+    return 0;
+});
+root.Subcommands.Add(lzCmd);
+
+var lrCourse = new Argument<string>("course") { Description = "Course name part." };
+var lrNode = new Argument<int>("node") { Description = "Lap node index to centre on." };
+var lrOut = new Argument<string>("out") { Description = "Output PNG." };
+var lrRadius = new Option<float>("--radius") { Description = "Half-size of the area in units.", DefaultValueFactory = _ => 40f };
+var lrAt = new Option<string?>("--at") { Description = "Centre x,z instead of the node." };
+var lrSize = new Option<int>("--size") { Description = "Image size in pixels.", DefaultValueFactory = _ => 600 };
+var lrCmd = new Command("lapraster", "Top-down raster of the game's lap zone test (LapZone.Contains, any height) with the drawn zone edges on top.") { lrCourse, lrNode, lrOut, lrRadius, lrAt, lrSize };
+lrCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var loader = new CourseLoader(fs);
+    var file = loader.ListRaceScenes().FirstOrDefault(f => f.Contains(parse.GetValue(lrCourse)!, StringComparison.OrdinalIgnoreCase));
+    if (file is null) { Console.Error.WriteLine("no such course"); return 1; }
+    var course = loader.Load(file);
+    var centreNode = course.LapPoints.First(l => l.Index == parse.GetValue(lrNode));
+    var r = parse.GetValue(lrRadius);
+    var size = parse.GetValue(lrSize);
+    var c0 = centreNode.Position;
+    if (parse.GetValue(lrAt) is { } at) { var xz = at.Split(',').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray(); c0 = new System.Numerics.Vector3(xz[0], c0.Y, xz[1]); }
+    var segs = LapZone.Segments(course)
+        .Where(s => System.Numerics.Vector3.Distance(s.A.Position, c0) < r + 80 || System.Numerics.Vector3.Distance(s.B.Position, c0) < r + 80)
+        .ToList();
+    float yMin = float.MaxValue, yMax = float.MinValue;
+    foreach (var (a, b) in segs)
+        foreach (var g in a.GateCorners().Concat(b.GateCorners())) { yMin = MathF.Min(yMin, g.Y); yMax = MathF.Max(yMax, g.Y); }
+    var rgba = new byte[size * size * 4];
+    var hits = new int[size * size];
+    System.Threading.Tasks.Parallel.For(0, size, py =>
+    {
+        for (var px = 0; px < size; px++)
+        {
+            var x = c0.X - r + (px + 0.5f) * 2 * r / size;
+            var z = c0.Z - r + (py + 0.5f) * 2 * r / size;
+            var mask = 0;
+            for (var si = 0; si < segs.Count; si++)
+                for (var y = yMin - 5; y <= yMax + 5; y += 0.25f)
+                    if (LapZone.Contains(segs[si].A, segs[si].B, new System.Numerics.Vector3(x, y, z))) { mask |= 1 << (si % 30); break; }
+            hits[py * size + px] = mask;
+        }
+    });
+    for (var i = 0; i < size * size; i++)
+    {
+        var m = hits[i];
+        var n = System.Numerics.BitOperations.PopCount((uint)m);
+        byte v = (byte)(n == 0 ? 20 : 60 + Math.Min(3, n) * 45);
+        rgba[i * 4] = (byte)(n == 0 ? 20 : 30); rgba[i * 4 + 1] = (byte)(n == 0 ? 20 : v / 2); rgba[i * 4 + 2] = v; rgba[i * 4 + 3] = 255;
+    }
+    void Px(float x, float z, byte cr, byte cg, byte cb)
+    {
+        var px = (int)((x - c0.X + r) / (2 * r) * size);
+        var py = (int)((z - c0.Z + r) / (2 * r) * size);
+        if (px < 0 || py < 0 || px >= size || py >= size) return;
+        var i = (py * size + px) * 4;
+        rgba[i] = cr; rgba[i + 1] = cg; rgba[i + 2] = cb;
+    }
+    void Seg(System.Numerics.Vector3 p, System.Numerics.Vector3 q, byte cr, byte cg, byte cb)
+    {
+        var n = (int)(System.Numerics.Vector3.Distance(p, q) / (2 * r) * size * 2) + 2;
+        for (var k = 0; k <= n; k++) { var v = System.Numerics.Vector3.Lerp(p, q, k / (float)n); Px(v.X, v.Z, cr, cg, cb); }
+    }
+    foreach (var (a, b) in segs)
+    {
+        var sec = LapZone.Sections(a, b);
+        for (var k = 1; k < sec.Count; k++)
+        {
+            Seg(sec[k - 1][0], sec[k][0], 255, 255, 0);
+            Seg(sec[k - 1][1], sec[k][1], 255, 255, 0);
+        }
+    }
+    foreach (var (a, b) in segs) { var g = a.GateCorners(); Seg(g[0], g[1], 255, 80, 80); }
+    MKWSatellite.Formats.Imaging.PngWriter.Write(parse.GetValue(lrOut)!, size, size, rgba);
+    Console.WriteLine($"{segs.Count} segments, y {yMin:F0}..{yMax:F0}");
+    return 0;
+});
+root.Subcommands.Add(lrCmd);
+
 var gfCmd = new Command("gatefit", "Compare lap gate placements (offset sign / centring) against walls in the course model.") { gfCourses };
 gfCmd.SetAction(parse =>
 {

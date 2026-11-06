@@ -284,8 +284,6 @@ public sealed class CourseView(PrimitiveBatch batch)
         // bow outward (LapZone; LerpType can make a side straight).
         if (Layers.LapPath && Layers.ProgressZones)
         {
-            var byPoint = new Dictionary<BancRailPoint, LapPoint>(ReferenceEqualityComparer.Instance);
-            foreach (var lp in c.LapPoints) byPoint[lp.Point] = lp;
             var fill = Palette.WithAlpha(Palette.ProgressZone, is3D ? (byte)0x18 : (byte)0x26);
             var edge = Palette.WithAlpha(Palette.ProgressZone, 0xB0);
             void Zone(LapPoint a, LapPoint b)
@@ -305,19 +303,7 @@ public sealed class CourseView(PrimitiveBatch batch)
                     Line(ga[2], gb[2], 1f, edge);
                 }
             }
-            foreach (var rail in c.Rails)
-            {
-                if (rail.Kind != "LapPathGraph") continue;
-                var pts = rail.Rail.Points;
-                for (var i = 0; i < pts.Count; i++)
-                {
-                    if (!byPoint.TryGetValue(pts[i], out var a)) continue;
-                    var next = i + 1 < pts.Count ? pts[i + 1] : rail.Rail.IsClosed && pts.Count > 2 ? pts[0] : null;
-                    if (next is not null && byPoint.TryGetValue(next, out var b)) Zone(a, b);
-                    foreach (var dst in pts[i].LinkTargets)
-                        if (c.PointsByHash.TryGetValue(dst, out var q) && byPoint.TryGetValue(q, out var lb)) Zone(a, lb);
-                }
-            }
+            foreach (var (a, b) in LapZone.Segments(c)) Zone(a, b);
         }
 
         // 3. Lap gates: a line between the bottom corners top-down, the full upright rectangle in 3D.

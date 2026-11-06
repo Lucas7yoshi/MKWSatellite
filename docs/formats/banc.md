@@ -62,6 +62,16 @@ rail's `IsClosed`.
     the half-width along the chord grows by about 1/cos(θ/2) for a turn of θ). The viewer draws this
     (`LapZone`, "Lap progress zones"), slicing each segment into cross-sections: the plane of constant t intersected
     with the side and floor planes. `LapZoneTests` checks the drawn edges against a port of the game test.
+  - **Tight bends:** every t-plane passes through the line where the two gate planes meet. Past that line
+    d_a - d_b <= 0 and the game skips the segment, so where the inner gate edges reach past it the zone stops at the
+    line: section corners beyond it are clipped onto it. Fans of gates around a hairpin therefore leave cusps and
+    can leave **holes** with no zone at all (SFC Mario Circuit G inner hairpin, under a `RescueArea`).
+  - Checks: `mkwsat lapzone <course|all>` nudges every drawn corner 0.5 units in and out and asks the port
+    (`LapZone.Contains`); 0 of 32,577 segments disagree (smaller nudges only fail at cusp tips narrower than the
+    nudge). `mkwsat lapraster <course> <node> <out.png> --at x,z --radius r` rasterises the port top-down (any height)
+    with the drawn edges on top; SFC Mario Circuit G and Lava matched pixel for pixel.
+  - The game does this in single precision (`float` throughout, `sinf`/`acosf`/`sqrtf`); so does the port.
+  - Every lap node in the 1.8 race scenes has `RectSize` (the game falls back to defaults only without it).
   - `Dynamic.LerpType` (MurmurHash3 0x3C0AED52, stored at +0x530 by the lap Dynamic parser `0x7102990F20`) makes a
     side straight: 1 = both sides, 2 = the +right side, 3 = the -right side, 0/absent = neither. A side is straight
     only when **both** gates of the segment ask for it; it is then the plane through the two gates' edges containing

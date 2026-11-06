@@ -31,7 +31,7 @@ public class LapZoneTests
         var cb = b.GateCentre;
         var da = Vector3.Dot(Row(ma, Vector3.UnitZ), p - ca);
         var db = Vector3.Dot(Row(mb, Vector3.UnitZ), p - cb);
-        if (da == db) return false;
+        if (da - db <= 0) return false; // the game skips the segment (0x7100AAD950)
         var t = da / (da - db);
         if (t < 0 || t > 1) return false;
 
@@ -103,6 +103,33 @@ public class LapZoneTests
             Assert.True(Vector3.Distance(s[0][i], ga[i]) < 1e-3f, $"{s[0][i]} vs {ga[i]}");
             Assert.True(Vector3.Distance(s[^1][i], gb[i]) < 1e-3f, $"{s[^1][i]} vs {gb[i]}");
         }
+    }
+
+    /// <summary>
+    /// Hairpin: the inner gate edges reach past the line where the two gate planes cross. The game skips the segment
+    /// there (d_a - d_b &lt;= 0 in RailPoint_FindSegmentContaining), so no drawn corner may lie beyond that line, and the
+    /// port must reject points just past it.
+    /// </summary>
+    [Fact]
+    public void HairpinCornersStopWhereTheGatePlanesCross()
+    {
+        var a = Gate(new Vector3(0, 0, 0), 0f, 30, 10);
+        var b = Gate(new Vector3(20, 0, 10), 1.6f, 30, 10);
+        var fa = Vector3.TransformNormal(Vector3.UnitZ, CourseMath.EulerXyz(a.Point.Rotate));
+        var fb = Vector3.TransformNormal(Vector3.UnitZ, CourseMath.EulerXyz(b.Point.Rotate));
+        float Den(Vector3 p) => Vector3.Dot(fa, p - a.GateCentre) - Vector3.Dot(fb, p - b.GateCentre);
+        var clipped = 0;
+        foreach (var s in LapZone.Sections(a, b))
+            foreach (var c in s)
+            {
+                Assert.True(Den(c) > -1e-2f, $"corner {c} is past the crossing line (d_a - d_b = {Den(c)})");
+                if (MathF.Abs(Den(c)) >= 1e-2f) continue;
+                clipped++;
+                Assert.False(LapZone.Contains(a, b, c - 0.5f * Vector3.Normalize(fa - fb)), "point past the crossing line accepted");
+                Assert.False(GameInZone(a, b, c - 0.5f * Vector3.Normalize(fa - fb)), "point past the crossing line accepted (test port)");
+            }
+        Assert.True(clipped > 0, "expected the hairpin to clip some corners");
+        Assert.True(GameInZone(a, b, new Vector3(5, 1, 5)) == LapZone.Contains(a, b, new Vector3(5, 1, 5)));
     }
 
     [Fact]
