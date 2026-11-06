@@ -28,7 +28,7 @@ public sealed class ViewLayers
     public bool Nodes = true;
     public bool ItemBoxes = true, Coins = true, Boosts = true, StartGrid = true;
     public bool RespawnAreas = true, RecoveryPoints = true, ValleyAreas = true, HighSpeedAreas = true, BoostAreas = true, RuleAreas = true, LinkAreas = false, OtherAreas = false;
-    public bool Hazards = true, Fences = false, Audience = false, Scenery = false;
+    public bool Hazards = true, Fences = true, Audience = true, Scenery = true;
     public bool LayerRace = true, LayerWorld = true, LayerCourseFix = true;
     /// <summary>Colour the lap path by height instead of a flat colour.</summary>
     public bool HeightColors = true;
