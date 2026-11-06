@@ -66,3 +66,5 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | Viewer: fences, audience and other scenery are shown by default. |
 | 2026-11-05 | Viewer: first-person camera as a separate view mode (right-drag look with captured cursor, WASD along the view, E/Q up/down, Shift faster, wheel sets speed); starts at the first lap point looking down the lap path. `--first-person`. |
 | 2026-11-05 | Version 0.0.2, first release. `dist/publish.ps1` builds the viewer as plain folders: self-contained per OS (win-x64, linux-x64, osx-arm64; untrimmed) and a portable framework-dependent one; English resources only, no PDBs. Settings JSON is source-generated and the GLFW backends are registered explicitly. Linux/macOS untested. Repo moved to GitHub. |
+| 2026-11-05 | Licence: GPL-3.0 (`LICENSE`, D19). README rewritten with the author's note and a feature list; packages ship `LICENSE`. |
+| 2026-11-05 | CI: `.github/workflows/build.yml` builds and tests on every push/PR, uploads framework-dependent viewer builds per OS, and on a `v*` tag drafts a GitHub release from `dist/publish.ps1`. Release archives no longer nest a wrapper folder. |

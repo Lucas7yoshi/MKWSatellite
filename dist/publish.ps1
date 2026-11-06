@@ -8,7 +8,8 @@
       MKWSatellite-<version>-<rid>        self-contained: includes the .NET runtime, nothing to install
       MKWSatellite-<version>-portable     framework-dependent: needs the .NET 10 runtime; one folder for every OS, with
                                           the native GLFW/cimgui libraries for each under runtimes/
-    Windows packages are .zip; Linux/macOS packages are .tar.gz so the executable keeps its executable bit.
+    Files sit at the archive root (no wrapper folder). Windows packages are .zip; Linux/macOS packages are .tar.gz so
+    the executable keeps its executable bit.
     See dist/README.md.
 
 .EXAMPLE
@@ -35,9 +36,9 @@ if (-not $Version) {
 $out = Join-Path $PSScriptRoot "out/$Version"
 New-Item -ItemType Directory -Force $out | Out-Null
 # Files shipped next to the viewer.
-$extras = @('README.md', 'THIRD_PARTY_NOTICES.md', 'mkwsat.local.example.json')
+$extras = @('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'mkwsat.local.example.json')
 
-function Write-TarGz([string] $source, [string] $archive, [string] $top, [string] $exe) {
+function Write-TarGz([string] $source, [string] $archive, [string] $exe) {
     # System.Formats.Tar keeps the Unix executable bit, which a tar made on Windows would otherwise lose.
     $fs = [IO.File]::Create($archive)
     $gz = [IO.Compression.GZipStream]::new($fs, [IO.Compression.CompressionLevel]::SmallestSize)
@@ -45,8 +46,8 @@ function Write-TarGz([string] $source, [string] $archive, [string] $top, [string
     try {
         foreach ($f in Get-ChildItem $source -Recurse -File) {
             $rel = [IO.Path]::GetRelativePath($source, $f.FullName).Replace('\', '/')
-            $entry = [Formats.Tar.PaxTarEntry]::new([Formats.Tar.TarEntryType]::RegularFile, "$top/$rel")
-            $entry.Mode = if ($rel -eq $exe) { [IO.UnixFileMode]'UserRead,UserWrite,UserExecute,GroupRead,GroupExecute,OtherRead,OtherExecute' }
+            $entry = [Formats.Tar.PaxTarEntry]::new([Formats.Tar.TarEntryType]::RegularFile, $rel)
+            $entry.Mode = if ($rel -in $exe, 'createdump') { [IO.UnixFileMode]'UserRead,UserWrite,UserExecute,GroupRead,GroupExecute,OtherRead,OtherExecute' }
                           else { [IO.UnixFileMode]'UserRead,UserWrite,GroupRead,OtherRead' }
             $entry.ModificationTime = $f.LastWriteTimeUtc
             $data = [IO.File]::OpenRead($f.FullName)
@@ -75,8 +76,8 @@ foreach ($b in $builds) {
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $name" }
     foreach ($e in $extras) { Copy-Item (Join-Path $root $e) $dir }
 
-    if ($unix) { Write-TarGz $dir $archive $name 'MKWSatellite' }
-    else { [IO.Compression.ZipFile]::CreateFromDirectory($dir, $archive, [IO.Compression.CompressionLevel]::SmallestSize, $true) }
+    if ($unix) { Write-TarGz $dir $archive 'MKWSatellite' }
+    else { [IO.Compression.ZipFile]::CreateFromDirectory($dir, $archive, [IO.Compression.CompressionLevel]::SmallestSize, $false) }
     Remove-Item -Recurse -Force $dir
     Write-Host ('    {0} ({1:N1} MB)' -f (Split-Path -Leaf $archive), ((Get-Item $archive).Length / 1MB))
 }
