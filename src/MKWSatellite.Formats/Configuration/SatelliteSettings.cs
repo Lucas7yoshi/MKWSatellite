@@ -31,12 +31,14 @@ public sealed class SatelliteSettings
     [JsonIgnore]
     public string? FilePath { get; private set; }
 
+    [JsonIgnore]
     public bool IsConfigured => Romfs.Count > 0;
 
     /// <summary>
     /// Where <see cref="Save"/> writes: the file the settings were loaded from, an existing settings file, or a new
     /// one next to the executable.
     /// </summary>
+    [JsonIgnore]
     public string SavePath => FilePath ?? FindFile() ?? Path.Combine(AppContext.BaseDirectory, FileName);
 
     /// <summary>Writes the settings file (romfs list and mod output), makes it this instance's source, and returns its path.</summary>
