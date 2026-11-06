@@ -11,6 +11,6 @@
     <Authors>MKWSatellite contributors</Authors>
     <Product>MKWSatellite</Product>
     <!-- Release version; dist/publish.ps1 can override it with -Version. -->
-    <Version>0.0.5</Version>
+    <Version>0.0.6</Version>
   </PropertyGroup>
 </Project>
