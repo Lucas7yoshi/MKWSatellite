@@ -22,7 +22,7 @@ namespace MKWSatellite.App
 {
     /// <summary>
     /// Command line: <c>MKWSatellite [romfs...] [--course &lt;name part&gt;] [--screenshot &lt;out.png&gt;] [--size WxH]
-    /// [--3d] [--orbit yawDeg,pitchDeg[,distance]] [--no-models] [--ui-scale N] [--no-ui] [--layer Field=0|1]...</c>.
+    /// [--3d] [--first-person] [--orbit yawDeg,pitchDeg[,distance]] [--no-models] [--ui-scale N] [--no-ui] [--layer Field=0|1]...</c>.
     /// <c>--layer</c> sets any public bool or float field of <c>ViewLayers</c> (e.g. <c>AiRoutes=0</c>, <c>LineScale=2</c>);
     /// <c>--no-ui</c> hides the panels. A top-down screenshot larger than the window is rendered in tiles and stitched.
     /// Positional arguments are romfs layers (base first) and override the configured ones.
@@ -30,6 +30,8 @@ namespace MKWSatellite.App
     public sealed record AppOptions(IReadOnlyList<string> Romfs, string? Course, string? Screenshot, int Width, int Height)
     {
         public bool View3D { get; init; }
+        /// <summary>Start in 3D with first-person controls.</summary>
+        public bool FirstPerson { get; init; }
         public bool NoModels { get; init; }
         /// <summary>UI scale (1 = 1080p); null = from the monitor resolution.</summary>
         public float? UiScale { get; init; }
@@ -49,7 +51,7 @@ namespace MKWSatellite.App
             var romfs = new List<string>();
             string? course = null, shot = null;
             int w = 1600, h = 900;
-            bool view3d = false, noModels = false;
+            bool view3d = false, noModels = false, firstPerson = false;
             float? uiScale = null;
             var sizeGiven = false;
             System.Numerics.Vector3? orbit = null;
@@ -68,6 +70,7 @@ namespace MKWSatellite.App
                         h = int.Parse(parts[1]);
                         break;
                     case "--3d": view3d = true; break;
+                    case "--first-person": firstPerson = true; break;
                     case "--ui-scale" when i + 1 < args.Length: uiScale = float.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture); break;
                     case "--no-models": noModels = true; break;
                     case "--no-ui": noUi = true; break;
@@ -82,7 +85,7 @@ namespace MKWSatellite.App
                     default: romfs.Add(args[i]); break;
                 }
             }
-            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, NoModels = noModels, Orbit = orbit, UiScale = uiScale, SizeGiven = sizeGiven, NoUi = noUi, Layers = layers };
+            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, FirstPerson = firstPerson, NoModels = noModels, Orbit = orbit, UiScale = uiScale, SizeGiven = sizeGiven, NoUi = noUi, Layers = layers };
         }
     }
 }

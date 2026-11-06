@@ -37,6 +37,11 @@ public sealed partial class SatelliteApp : IDisposable
     private readonly TopDownCamera _camera = new();
     private readonly OrbitCamera _orbit = new();
     private bool _use3D, _panning;
+    /// <summary>3D with first-person controls (mouse look + WASD) instead of orbiting.</summary>
+    private bool _firstPerson, _looking;
+    private float _fpSpeed = 60f;
+    /// <summary>First person: how far ahead the camera's target sits (sets marker size and clip planes).</summary>
+    private const float FpLookDistance = 100f;
     private ModelLibrary? _models;
     private TerrainRenderer? _terrain;
     private CollisionRenderer? _collision;
@@ -101,7 +106,8 @@ public sealed partial class SatelliteApp : IDisposable
         foreach (var m in _input.Mice) m.Scroll += OnScroll;
         OpenGame(SatelliteSettings.Load(_options.Romfs.Count > 0 ? _options.Romfs.ToArray() : null));
         InitEditing();
-        _use3D = _options.View3D;
+        _firstPerson = _options.FirstPerson;
+        _use3D = _options.View3D || _firstPerson;
         if (_options.NoModels) _view.Layers.Models = false;
         foreach (var (field, value) in _options.Layers)
         {
@@ -282,6 +288,23 @@ public sealed partial class SatelliteApp : IDisposable
             _orbit.Pitch = o.Y * MathF.PI / 180;
             if (o.Z > 0) _orbit.Distance = o.Z;
         }
+        if (_firstPerson) PlaceFirstPerson();
+    }
+
+    /// <summary>First person: stands at the first lap point, slightly raised, looking along the lap path.</summary>
+    private void PlaceFirstPerson()
+    {
+        if (_view.Course is { LapPoints: { Count: >= 2 } lap })
+        {
+            var flat = lap[1].Position - lap[0].Position;
+            flat.Y = 0;
+            if (flat.LengthSquared() > 1e-4f)
+            {
+                _orbit.LookFrom(lap[0].Position + new Vector3(0, 8, 0), Vector3.Normalize(flat) - new Vector3(0, 0.1f, 0), FpLookDistance);
+                return;
+            }
+        }
+        _orbit.EnterFirstPerson(FpLookDistance);
     }
 
     private void UpdateViewportRect()
@@ -297,7 +320,8 @@ public sealed partial class SatelliteApp : IDisposable
     private void OnScroll(IMouse mouse, ScrollWheel wheel)
     {
         if (ImGui.GetIO().WantCaptureMouse || !InViewport(mouse.Position)) return;
-        if (_use3D) { _orbit.Zoom(MathF.Pow(1.2f, wheel.Y)); _view.Invalidate(); }
+        if (_firstPerson) _fpSpeed = Math.Clamp(_fpSpeed * MathF.Pow(1.25f, wheel.Y), 2f, 5000f);
+        else if (_use3D) { _orbit.Zoom(MathF.Pow(1.2f, wheel.Y)); _view.Invalidate(); }
         else _camera.ZoomAt(mouse.Position, MathF.Pow(1.2f, wheel.Y));
     }
 
@@ -309,6 +333,7 @@ public sealed partial class SatelliteApp : IDisposable
             _lastMouse = pos;
             return;
         }
+        if (_firstPerson) { HandleFirstPerson(mouse, pos, free, dt); return; }
         var delta = pos - _lastMouse;
         if (mouse.IsButtonPressed(MouseButton.Left))
         {
@@ -339,6 +364,78 @@ public sealed partial class SatelliteApp : IDisposable
         _view.UpdateHover(_orbit, pos, free && _dragStart is null && !_panning);
         UpdateCollisionHover(pos, free && _dragStart is null && !_panning);
         _lastMouse = pos;
+    }
+
+    /// <summary>
+    /// First person: hold the right (or middle) button to look around (cursor captured), left-drag also looks, a left
+    /// click selects; WASD move along the view, E/Q up/down, Shift faster, wheel sets the speed.
+    /// </summary>
+    private void HandleFirstPerson(IMouse mouse, Vector2 pos, bool free, float dt)
+    {
+        var delta = pos - _lastMouse;
+        var lookButton = mouse.IsButtonPressed(MouseButton.Right) || mouse.IsButtonPressed(MouseButton.Middle);
+        if (lookButton && (free || _looking))
+        {
+            if (!_looking)
+            {
+                _looking = true;
+                mouse.Cursor.CursorMode = CursorMode.Raw;
+                pos = mouse.Position; // the position can jump when the cursor is captured
+            }
+            else _orbit.Look(delta);
+        }
+        else if (_looking)
+        {
+            _looking = false;
+            mouse.Cursor.CursorMode = CursorMode.Normal;
+            pos = mouse.Position;
+        }
+
+        if (mouse.IsButtonPressed(MouseButton.Left) && !_looking)
+        {
+            if (_dragStart is null && free) _dragStart = pos;
+            else if (_dragStart is not null) _orbit.Look(delta);
+        }
+        else if (_dragStart is { } start)
+        {
+            if (Vector2.Distance(start, pos) < 3 && free) { _view.Selected = _view.PickClick(_orbit, pos); _view.Invalidate(); }
+            _dragStart = null;
+        }
+
+        if (_input.Keyboards.Count > 0 && !ImGui.GetIO().WantCaptureKeyboard)
+        {
+            var k = _input.Keyboards[0];
+            var move = new Vector3(
+                (k.IsKeyPressed(Key.D) ? 1 : 0) - (k.IsKeyPressed(Key.A) ? 1 : 0),
+                (k.IsKeyPressed(Key.E) || k.IsKeyPressed(Key.Space) ? 1 : 0) - (k.IsKeyPressed(Key.Q) ? 1 : 0),
+                (k.IsKeyPressed(Key.W) ? 1 : 0) - (k.IsKeyPressed(Key.S) ? 1 : 0));
+            if (move != Vector3.Zero)
+                _orbit.Walk(move, _fpSpeed * (k.IsKeyPressed(Key.ShiftLeft) || k.IsKeyPressed(Key.ShiftRight) ? 4 : 1), dt);
+        }
+        var idle = free && _dragStart is null && !_looking;
+        _view.UpdateHover(_orbit, pos, idle);
+        UpdateCollisionHover(pos, idle);
+        _lastMouse = pos;
+    }
+
+    /// <summary>Switches between orbit and first-person controls (the view itself stays where it is).</summary>
+    private void SetViewMode(bool use3D, bool firstPerson)
+    {
+        if (_looking && _input.Mice.Count > 0) _input.Mice[0].Cursor.CursorMode = CursorMode.Normal;
+        _looking = false;
+        if (firstPerson && !_firstPerson) _orbit.EnterFirstPerson(FpLookDistance);
+        else if (!firstPerson && _firstPerson && _view.Course is { } c)
+        {
+            // Back to orbiting: pivot around a point ahead, at a distance that suits the course.
+            var (min, max) = CourseView.FrameBounds(c);
+            var eye = _orbit.Eye;
+            var d = MathF.Max(50f, Vector3.Distance(min, max) * 0.25f);
+            _orbit.Target = eye + _orbit.Forward * d;
+            _orbit.Distance = d;
+        }
+        _use3D = use3D;
+        _firstPerson = firstPerson;
+        _view.Invalidate();
     }
 
     private bool InViewport(Vector2 p) =>
@@ -637,7 +734,9 @@ public sealed partial class SatelliteApp : IDisposable
             dl.AddText(_orbit.ViewportPos + HeaderLine(0), 0xFFFFFFFF,
                 $"{_view.Course.Name}{(_history.IsDirty ? " (edited)" : "")}   static layer: {_view.Course.StaticLayerSource}   game data Product.{_resourceVersion}");
             dl.AddText(_orbit.ViewportPos + HeaderLine(1), 0xFFB0B0B0,
-                "3D: left-drag orbit, right-drag pan, wheel zoom, WASD/QE move (Shift = faster)" + ModelStatus());
+                (_firstPerson
+                    ? $"First person: right-drag look, WASD move, E/Q up/down, Shift fast, wheel speed ({_fpSpeed:0} u/s)"
+                    : "3D: left-drag orbit, right-drag pan, wheel zoom, WASD/QE move (Shift = faster)") + ModelStatus());
             return;
         }
         // Pick a round length that is ~120 px on screen.
@@ -736,10 +835,11 @@ public sealed partial class SatelliteApp : IDisposable
         }
         ImGui.EndChild();
 
-        if (ImGui.RadioButton("Top-down", !_use3D)) { _use3D = false; _view.Invalidate(); }
+        if (ImGui.RadioButton("Top-down", !_use3D)) SetViewMode(false, false);
         ImGui.SameLine();
-        if (ImGui.RadioButton("3D", _use3D)) { _use3D = true; _view.Invalidate(); }
+        if (ImGui.RadioButton("3D", _use3D && !_firstPerson)) SetViewMode(true, false);
         ImGui.SameLine();
+        if (ImGui.RadioButton("First person", _use3D && _firstPerson)) SetViewMode(true, true);
         if (ImGui.Button("Frame course")) { _view.FrameCourse(_camera); FrameOrbit(); _view.Invalidate(); }
         ImGui.Separator();
         DrawEditPanel();

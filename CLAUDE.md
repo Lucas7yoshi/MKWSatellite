@@ -11,7 +11,7 @@ Start every session by reading `docs/ROADMAP.md` (plan + progress log), `docs/DE
 - `dotnet build`, `dotnet test`.
 - Game data comes from `--romfs <dir>`, `MKWSAT_ROMFS`, or the git-ignored `mkwsat.local.json`
   (see `mkwsat.local.example.json`). The reference dump is version 1.8 (`Product.180`).
-- Headless renders: `MKWSatellite --course <name part> --screenshot out.png --size WxH [--3d --orbit yaw,pitch,dist]
+- Headless renders: `MKWSatellite --course <name part> --screenshot out.png --size WxH [--3d --orbit yaw,pitch,dist | --first-person]
   [--no-ui] [--layer Field=value]`. Top-down shots larger than the window are tiled and stitched.
 - `mkwsat` subcommands (`course`, `terrain`, `model`, `tex`, `dump`, `ground`, `areafit`, ...) check formats against
   the data; `MKWSAT_ALL=1` makes `course`/`model` list every type/shape.

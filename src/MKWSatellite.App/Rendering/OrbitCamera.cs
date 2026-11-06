@@ -96,6 +96,46 @@ public sealed class OrbitCamera : IViewCamera
         Target += (flat * local.Z + right * local.X + Vector3.UnitY * local.Y) * speed;
     }
 
+    private Vector3 Offset => new(MathF.Cos(Pitch) * MathF.Sin(Yaw), MathF.Sin(Pitch), MathF.Cos(Pitch) * MathF.Cos(Yaw));
+
+    /// <summary>
+    /// First-person use: keeps the eye where it is and puts the target <paramref name="lookDistance"/> ahead (the
+    /// distance only sets marker sizes and the clip planes).
+    /// </summary>
+    public void EnterFirstPerson(float lookDistance)
+    {
+        var eye = Eye;
+        Distance = lookDistance;
+        Target = eye - Distance * Offset;
+    }
+
+    /// <summary>First-person placement: eye at <paramref name="eye"/> looking along <paramref name="direction"/>.</summary>
+    public void LookFrom(Vector3 eye, Vector3 direction, float lookDistance)
+    {
+        var o = -Vector3.Normalize(direction);
+        Yaw = MathF.Atan2(o.X, o.Z);
+        Pitch = Math.Clamp(MathF.Asin(Math.Clamp(o.Y, -1f, 1f)), -1.55f, 1.55f);
+        Distance = lookDistance;
+        Target = eye - Distance * Offset;
+    }
+
+    /// <summary>First-person mouse look: turns around the eye (mouse right = turn right, mouse up = look up).</summary>
+    public void Look(Vector2 deltaPixels)
+    {
+        var eye = Eye;
+        Yaw -= deltaPixels.X * 0.003f;
+        Pitch = Math.Clamp(Pitch + deltaPixels.Y * 0.003f, -1.55f, 1.55f);
+        Target = eye - Distance * Offset;
+    }
+
+    /// <summary>First-person movement: X right, Y world up, Z along the view direction (including its tilt).</summary>
+    public void Walk(Vector3 local, float unitsPerSecond, float seconds)
+    {
+        var f = Forward;
+        var right = Vector3.Normalize(Vector3.Cross(f, Vector3.UnitY));
+        Target += (f * local.Z + right * local.X + Vector3.UnitY * local.Y) * unitsPerSecond * seconds;
+    }
+
     public void Frame(Vector3 min, Vector3 max)
     {
         Target = (min + max) / 2;
