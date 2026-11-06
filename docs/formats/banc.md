@@ -55,8 +55,9 @@ rail's `IsClosed`.
   - Locating a racer (`0x7100AAD950`): for each segment a→b, t = d_a / (d_a - d_b) with d = signed distance to the
     gate plane (through the centre, normal = forward row); t must be in [0, 1]. Then `RailPoint_IsInSegmentVolume`
     (0x71007F34D0, margin 0) checks |dot(right, p - centre(t))| <= lerp(half-width) and dot(up, ...) >= -lerp(height)
-    (upper bound only when a per-racer byte at +0xD0C is set, read in `LapProgress_Update` 0x71005BDA04; its writer
-    and meaning are **unverified**), with centre and half-extents lerped and the rotation slerped (quaternions). Of the passing
+    (upper bound only when a byte at +0xD0C of the lap-path graph is set: `LapProgress_Update` 0x71005BDA04 reads it
+    from the graph it picked (`[obj + 0x70]` or `+0x78`, by a mode at tracker +0x307C); several constructors zero
+    +0xD08..+0xD0F and no other writer was found, so probably never set, **unverified**), with centre and half-extents lerped and the rotation slerped (quaternions). Of the passing
     segments the nearest point wins.
   - So on a bend the zone's sides **bow outward** past the straight lines between the gate corners (at mid-segment
     the half-width along the chord grows by about 1/cos(θ/2) for a turn of θ). The viewer draws this
@@ -72,6 +73,10 @@ rail's `IsClosed`.
     with the drawn edges on top; SFC Mario Circuit G and Lava matched pixel for pixel.
   - The game does this in single precision (`float` throughout, `sinf`/`acosf`/`sqrtf`); so does the port.
   - Every lap node in the 1.8 race scenes has `RectSize` (the game falls back to defaults only without it).
+  - No lap-point override of the volume test: the function's address appears in exactly two vtables
+    (0x7103684910, 0x7103684978) at +0x40, each followed at +0x48 by `LapPoint_ParseDynamic` (0x7102990F20, the
+    `LerpType` parser called through vtable +0x48 by the point setup). The `d_a - d_b <= 0` skip and the t range check
+    were also read in the raw assembly of `LapProgress_Update` (0x71005BDADC-0x71005BDAF0).
   - `Dynamic.LerpType` (MurmurHash3 0x3C0AED52, stored at +0x530 by the lap Dynamic parser `0x7102990F20`) makes a
     side straight: 1 = both sides, 2 = the +right side, 3 = the -right side, 0/absent = neither. A side is straight
     only when **both** gates of the segment ask for it; it is then the plane through the two gates' edges containing

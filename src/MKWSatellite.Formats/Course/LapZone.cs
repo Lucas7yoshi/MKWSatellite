@@ -16,8 +16,8 @@ public static class LapZone
     /// <summary>
     /// Cross-sections of the zone from gate a (t = 0) to gate b (t = 1), each as four corners in the order of
     /// <see cref="LapPoint.GateCorners"/> (bottom-left, bottom-right, top-right, top-left). The top is drawn at +h for
-    /// reference: the tracker only bounds it from above when a per-racer byte (+0xD0C, read in LapProgress_Update) is
-    /// set, which is not traced (unverified).
+    /// reference: the tracker only bounds it from above when a byte on the lap-path graph (+0xD0C, read in
+    /// LapProgress_Update) is set; constructors zero it and no writer was found (unverified).
     /// </summary>
     public static List<Vector3[]> Sections(LapPoint a, LapPoint b, float maxStepDegrees = 3f, int maxSteps = 32)
     {
@@ -68,7 +68,7 @@ public static class LapZone
     /// <summary>
     /// Port of the game's test for one segment (1.8 <c>RailPoint_FindSegmentContaining</c> 0x7100AAD950 computing t,
     /// then <c>RailPoint_IsInSegmentVolume</c> 0x71007F34D0 with margin 0). <paramref name="upperBounded"/> is the
-    /// per-racer flag that also caps the zone at +h (unverified when it is set).
+    /// lap-path graph flag (+0xD0C) that also caps the zone at +h (no writer found; unverified).
     /// </summary>
     public static bool Contains(LapPoint a, LapPoint b, Vector3 p, bool upperBounded = false)
     {

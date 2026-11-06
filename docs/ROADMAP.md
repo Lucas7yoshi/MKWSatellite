@@ -71,3 +71,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | Lap progress zones follow the game's slerped gate frame, so they bow outward on bends instead of joining gate corners with straight lines (user report: zone looked short of the wall in first person). `Dynamic.LerpType` traced as the per-side straight-edge switch. |
 | 2026-11-05 | Version 0.0.3 (curved lap progress zones). |
 | 2026-11-05 | Lap progress zones on tight bends stop where the two gate planes cross (the game skips the segment past it), which removes folded-back sections (376 segments affected). `mkwsat lapzone` / `lapraster` check the drawing against a port of the game test; hairpin fans leave real cusps and holes. |
+| 2026-11-05 | Version 0.0.4. Draft releases now carry notes written from the commits since the previous tag (`dist/release-notes.sh`): what changed (commit subjects and messages) and the commit list. |
