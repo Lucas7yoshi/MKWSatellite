@@ -915,6 +915,7 @@ public sealed partial class SatelliteApp : IDisposable
             Legend(Palette.RouteNormal, "default route");
             Legend(Palette.RouteLowPriority, "RoutePriority < 0 (alternative)");
             Legend(Palette.RouteBulletBill, "Bullet Bill only (IsOnlyKillerInItem)");
+            Toggle("Show only Bullet Bill routes", ref L.BulletRoutesOnly, Palette.RouteBulletBill);
             Toggle("Bullet Bill zones", ref L.BulletZones, Palette.BulletNoFinish);
             if (L.BulletZones)
             {

@@ -22,6 +22,8 @@ public sealed class ViewLayers
     public bool GrindRails = true, FenceGrindRails = true;
     /// <summary>Bullet Bill route flags: no-finish stretches (<c>IsForbidKillerFinish</c>) and releasable points.</summary>
     public bool BulletZones = true;
+    /// <summary>Hide every AI route except Bullet-Bill-only branches (<c>IsOnlyKillerInItem</c> on the first point).</summary>
+    public bool BulletRoutesOnly = false;
     /// <summary>3D: how overlay behind course geometry is drawn.</summary>
     public OverlayDepth Depth = OverlayDepth.Dim;
     /// <summary>A dot on every path node (lap path, AI routes, other rails), to see what can be clicked.</summary>
@@ -232,6 +234,8 @@ public sealed class CourseView(PrimitiveBatch batch)
                 : r.Kind == RailKinds.Grind ? Layers.GrindRails : r.Kind == RailKinds.FenceGrind ? Layers.FenceGrindRails
                 : Layers.OtherRails && Palette.ShowRail(r.Kind);
             if (!on) continue;
+            // The flag is only ever on a branch's first point (all 355 such rails in 1.8), so it marks the whole rail.
+            if (isRoute && Layers.BulletRoutesOnly && r.Rail.Points.FirstOrDefault()?.Dynamic?.Get<bool>("IsOnlyKillerInItem") != true) continue;
             var px = isLap ? 4f : isRoute ? 2f : isGrind ? 3f : 2.5f;
             var kindColor = isGrind ? Palette.ForGrind(r) : Palette.ForRail(r.Kind);
             var selectedRail = Selected is PickedRailPoint sel && ReferenceEquals(sel.Rail.Rail.Raw, r.Rail.Raw);
