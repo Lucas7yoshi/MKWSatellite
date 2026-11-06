@@ -30,6 +30,8 @@ public sealed class ViewLayers
     public bool RespawnAreas = true, RecoveryPoints = true, ValleyAreas = true, HighSpeedAreas = true, BoostAreas = true, RuleAreas = true, LinkAreas = false, OtherAreas = false;
     public bool Hazards = true, Fences = true, Audience = true, Scenery = true;
     public bool LayerRace = true, LayerWorld = true, LayerCourseFix = true;
+    /// <summary>World grid: 250-unit cells (Gridify250, also the terrain quadtree's 250 squares) and 1000-unit world tiles.</summary>
+    public bool WorldGrid = false;
     /// <summary>Colour the lap path by height instead of a flat colour.</summary>
     public bool HeightColors = true;
     /// <summary>Draw 3D models for visible objects; course geometry (<c>Stage_*</c> actors) has its own toggle.</summary>
@@ -217,6 +219,9 @@ public sealed class CourseView(PrimitiveBatch batch)
             _pickables.Add((new PickedObject(o), 0));
         }
 
+        // 1b. World grid lines (top-down) or seams as vertical walls (3D, where a wall meets the ground is the seam).
+        if (Layers.WorldGrid) WorldGrid(is3D);
+
         // 2. Rails
         foreach (var r in c.Rails.Where(r => LayerOn(r.Layer)))
         {
@@ -375,6 +380,34 @@ public sealed class CourseView(PrimitiveBatch batch)
         if (Selected is PickedObject { Object.IsArea: true } sa && is3D) AreaBox(sa.Object, Palette.Selection, highlight: true);
 
         batch.Upload();
+    }
+
+    /// <summary>
+    /// The 250-unit world grid around the course: cell edges are multiples of 250 from the origin (the 16000-unit world
+    /// is 16x16 tiles of 1000 centred on the origin, each split into 4x4 Gridify250 cells; the terrain quadtree's
+    /// 250-unit squares share these edges). Tile edges (multiples of 1000) are drawn stronger.
+    /// </summary>
+    private void WorldGrid(bool is3D)
+    {
+        const float cell = 250, tile = 1000;
+        var (min, max) = FrameBounds(Course!);
+        var x0 = MathF.Floor(min.X / cell - 1) * cell;
+        var x1 = MathF.Ceiling(max.X / cell + 1) * cell;
+        var z0 = MathF.Floor(min.Z / cell - 1) * cell;
+        var z1 = MathF.Ceiling(max.Z / cell + 1) * cell;
+        float yLo = _minY - 40, yHi = _maxY + 80;
+        void Seam(Vector3 a, Vector3 b, bool major)
+        {
+            var col = major ? Palette.GridTile : Palette.GridCell;
+            if (is3D)
+            {
+                batch.Quad(a with { Y = yLo }, b with { Y = yLo }, b with { Y = yHi }, a with { Y = yHi }, Palette.WithAlpha(col, major ? (byte)0x30 : (byte)0x1C));
+                Line(a with { Y = yHi }, b with { Y = yHi }, major ? 2.5f : 1.5f, col);
+            }
+            else Line(a with { Y = yHi }, b with { Y = yHi }, major ? 2.5f : 1.2f, col);
+        }
+        for (var x = x0; x <= x1; x += cell) Seam(new Vector3(x, 0, z0), new Vector3(x, 0, z1), MathF.IEEERemainder(x, tile) == 0);
+        for (var z = z0; z <= z1; z += cell) Seam(new Vector3(x0, 0, z), new Vector3(x1, 0, z), MathF.IEEERemainder(z, tile) == 0);
     }
 
     // --- areas ---

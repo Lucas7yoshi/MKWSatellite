@@ -28,8 +28,8 @@ Publish settings live in `src/MKWSatellite.App/MKWSatellite.App.csproj` (English
   framework-dependent for win-x64, linux-x64, osx-x64 and osx-arm64 as downloadable workflow artifacts (GitHub zips
   artifacts and drops the executable bit, so on Linux/macOS run `chmod +x MKWSatellite` or `dotnet MKWSatellite.dll`).
 - Pushing a `v*` tag also runs `dist/publish.ps1` with the tag's version and creates a **draft** GitHub release with
-  its packages and notes from `dist/release-notes.sh`: **What's changed** (each commit's subject and message since the
-  previous `v*` tag, attribution trailers dropped) and a linked **Commits** list. Preview them locally with
+  its packages and notes from `dist/release-notes.sh`: **What's changed** (each commit since the previous `v*` tag as a
+  collapsed `<details>`: subject as the summary, message inside, attribution trailers dropped) and a linked **Commits** list. Preview them locally with
   `bash dist/release-notes.sh HEAD`. Edit and publish the draft by hand.
 
 ## Releasing

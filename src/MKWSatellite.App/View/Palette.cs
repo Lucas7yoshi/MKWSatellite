@@ -65,6 +65,9 @@ public static class Palette
     public static readonly uint BulletLookAhead = Rgb(255, 150, 30, 0x80);
     /// <summary>Lap progress zone between gates.</summary>
     public static readonly uint ProgressZone = Rgb(80, 190, 255);
+    /// <summary>World grid: 250-unit cell edges and 1000-unit tile edges.</summary>
+    public static readonly uint GridCell = Rgb(255, 255, 255, 0x70);
+    public static readonly uint GridTile = Rgb(255, 120, 220, 0xD0);
     /// <summary>Route point with <c>IsKillerReleasable</c>.</summary>
     public static readonly uint BulletReleasable = Rgb(90, 255, 120);
     public static readonly uint Hover = Rgb(255, 255, 255, 0xC0);

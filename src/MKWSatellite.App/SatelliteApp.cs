@@ -171,9 +171,10 @@ public sealed partial class SatelliteApp : IDisposable
         _imgui?.Dispose();
         var font = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "consola.ttf");
         _builtInFont = !File.Exists(font);
+        var fontSize = (int)MathF.Round(14 * scale);
         _imgui = _builtInFont
-            ? new ImGuiController(_gl, _window, _input)
-            : new ImGuiController(_gl, _window, _input, new ImGuiFontConfig(font, (int)MathF.Round(14 * scale)));
+            ? new ImGuiController(_gl, _window, _input, null, () => MergeJapaneseFont(13, addDefault: true))
+            : new ImGuiController(_gl, _window, _input, new ImGuiFontConfig(font, fontSize), () => MergeJapaneseFont(fontSize, addDefault: false));
         ImGuiClipboard.Install(_input);
         ImGui.GetStyle().WindowRounding = 0;
         ImGui.GetStyle().ScaleAllSizes(scale);
@@ -181,6 +182,28 @@ public sealed partial class SatelliteApp : IDisposable
         ApplyTextScale();
         _view.Layers.LineScale = lineMultiplier * scale;
         _view.Invalidate();
+    }
+
+    /// <summary>
+    /// Merges a Japanese system font (Yu Gothic, Meiryo or MS Gothic) into the UI font so the game's Japanese developer
+    /// labels render instead of '?'. Runs inside ImGuiController's constructor, after the main font is added and before
+    /// the atlas is built. Uses ImGui's Japanese range (kana + ~3000 common kanji); rarer kanji still show as '?'.
+    /// </summary>
+    private static unsafe void MergeJapaneseFont(int size, bool addDefault)
+    {
+        var dir = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
+        if (string.IsNullOrEmpty(dir)) return;
+        var path = new[] { "YuGothM.ttc", "YuGothR.ttc", "meiryo.ttc", "msgothic.ttc" }
+            .Select(f => Path.Combine(dir, f)).FirstOrDefault(File.Exists);
+        if (path is null) return;
+        var io = ImGui.GetIO();
+        if (addDefault) io.Fonts.AddFontDefault();
+        var cfg = new ImFontConfigPtr(ImGuiNative.ImFontConfig_ImFontConfig());
+        cfg.MergeMode = true;
+        cfg.OversampleH = 1;
+        cfg.PixelSnapH = true;
+        io.Fonts.AddFontFromFileTTF(path, size, cfg, io.Fonts.GetGlyphRangesJapanese());
+        cfg.Destroy();
     }
 
     private void ApplyTextScale() => ImGui.GetIO().FontGlobalScale = _textScale * (_builtInFont ? _uiScale : 1);
@@ -917,6 +940,10 @@ public sealed partial class SatelliteApp : IDisposable
         Toggle("Object paths, glide & other paths", ref L.OtherRails, Palette.ForRail("GuideGraphRail"));
         Toggle("Path node dots", ref L.Nodes);
         Toggle("Lap progress zones", ref L.ProgressZones, Palette.ProgressZone);
+        Toggle("World grid (250 cells, 1000 tiles)", ref L.WorldGrid, Palette.GridTile);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Cell edges of the world's 250-unit grid (Gridify cells and terrain squares); 1000-unit tile edges in pink.\n" +
+                "In 3D the seams are drawn as walls: where a wall meets the ground is the seam.");
         ImGui.TextDisabled("Objects");
         Toggle("Item boxes", ref L.ItemBoxes, Palette.ForCategory(ObjectCategory.ItemBox));
         Toggle("Coins", ref L.Coins, Palette.ForCategory(ObjectCategory.Coin));
@@ -958,6 +985,9 @@ public sealed partial class SatelliteApp : IDisposable
         if (changed) _view.Invalidate();
     }
 
+    private bool _collisionOnly;
+    private (bool Terrain, bool Water, bool WorldPieces, bool Models, bool StageModels) _savedGeometry = (true, true, true, true, true);
+
     private void DrawCollisionToggles(ToggleFn toggle)
     {
         var L = _view.Layers;
@@ -965,6 +995,17 @@ public sealed partial class SatelliteApp : IDisposable
         toggle("Collision (Phive)", ref L.Collision, Palette.ForCollisionMaterial("Road"));
         if (!L.Collision) return;
         if (_collisionStatus is not null) { ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine(); ImGui.TextDisabled(_collisionStatus); }
+        if (ImGui.Checkbox("Collision only (hide terrain, water, models)", ref _collisionOnly))
+        {
+            // Hides the other geometry and restores what was shown before when unticked.
+            if (_collisionOnly)
+            {
+                _savedGeometry = (L.Terrain, L.Water, L.WorldPieces, L.Models, L.StageModels);
+                L.Terrain = L.Water = L.WorldPieces = L.Models = L.StageModels = false;
+            }
+            else (L.Terrain, L.Water, L.WorldPieces, L.Models, L.StageModels) = _savedGeometry;
+            _view.Invalidate();
+        }
         ImGui.SetNextItemWidth(120 * _uiScale);
         ImGui.SliderFloat("Collision opacity", ref L.CollisionOpacity, 0.1f, 1f, "%.2f");
         var bySurface = L.CollisionBySurface ? 1 : 0;

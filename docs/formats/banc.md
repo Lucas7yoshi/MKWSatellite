@@ -177,3 +177,10 @@ rescue, valley and ride keep-out areas contain none of it, as off-road volumes s
 Areas without a physics shape (`Area_EnvCube`, `NoEntryArea`, `Area_DeleteLinkedActor`, camera/sound areas...) fall
 back to `BancDummyShape`: `*_t` as the `Cube_t` box above, anything else centred with half-extents 1. That fallback is
 a guess and the inspector says so.
+
+**NoJA (jump action forbidden) areas on world terrain.** Moo Moo Farm's 9 `SystemObj_NoJAArea_00` (in
+`World_Game03/WorldResident`, prefab `Plain_Gnd_A_00`) have yaw exactly 0 and are centred on lines x = 250, 0, -250
+and z = -1250, -1500, each long along its line and covering where the road crosses it. Those are the edges of the
+250-unit world grid (terrain quadtree squares, `Gridify250` cells; viewer layer "World grid"). Moo Moo Farm is the
+only race driven on world terrain, so the likely purpose is to stop jump actions / tricks triggering at terrain seams
+(**unverified**: the NoJA handler has not been traced).
