@@ -20,7 +20,7 @@ Start every session by reading `docs/ROADMAP.md` (plan + progress log), `docs/DE
 
 ## Rules (from the user)
 - Never commit absolute paths from the user's machine, game data, keys (`*.keys`), or screenshots.
-- Respect licences: write our own code; check a project's licence before borrowing from it (THIRD_PARTY_NOTICES.md).
+- The project is GPL-3.0 (LICENSE, D19). Respect licences: check a project's licence before borrowing from it and credit it (THIRD_PARTY_NOTICES.md).
 - Commit and push small steps to `main`; update `docs/` in the same commit (progress log, decisions, format notes).
 - Don't "fix" Nintendo's data oddities; only fix our own interpretation errors.
 - Mark anything not confirmed in game code or data as **unverified** in docs and UI text.

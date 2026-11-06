@@ -17,7 +17,7 @@ User's choice. .NET 10 is the current LTS.
 Game location comes from `--romfs`, `MKWSAT_ROMFS`, or a git-ignored `mkwsat.local.json`. `.gitignore` blocks game file types and `*.keys`. Build outputs use `PathMap`.
 
 ### D5. Respect licences; no Switch Toolbox code unless the project goes GPL (2026-11-04)
-Switch Toolbox (and likely Track Studio / MapStudio) is GPL-3.0. Reading it as a format reference is fine; copying code requires a GPL-3.0-compatible project licence. **Project licence: not chosen yet** (needed before model work).
+Switch Toolbox (and likely Track Studio / MapStudio) is GPL-3.0. Reading it as a format reference is fine; copying code requires a GPL-3.0-compatible project licence. **Project licence: GPL-3.0** (chosen 2026-11-05, D19).
 
 ### D6. Romfs is layered (2026-11-04)
 `GameFileSystem` takes base + update romfs directories, later ones win, matching how game updates work. A fully extracted update (like our 1.8 dump) is used on its own as a single layer.
@@ -80,3 +80,8 @@ uses only what the data defines and what was checked against it: `albedo_far` fo
 `color_mul2` below (matches `albedo_far`, formats/terrain.md), height-map normals and the models' simple light. Normal
 maps, baked lighting and the game's terrain shader graph were left out: they change the look, not what runners read
 from the map.
+
+### D19. Licence: GPL-3.0 (2026-11-05)
+The user released the project under the GNU GPL v3.0 (`LICENSE`), in line with Switch Toolbox, which was read as a
+format reference. Reuse of the code and of the research in docs/ is welcome. Release packages ship `LICENSE` and
+`THIRD_PARTY_NOTICES.md`.

@@ -1,5 +1,7 @@
 # Third-party notices
 
+MKWSatellite itself is licensed under the GNU General Public License v3.0 ([LICENSE](LICENSE)).
+
 MKWSatellite uses the following packages from NuGet. They are referenced, not vendored; their licences apply to their own code. Release packages (`dist/`) redistribute the App's package binaries, including the native GLFW and cimgui libraries, together with this file.
 
 | Package | Used by | Licence |
@@ -15,7 +17,7 @@ MKWSatellite uses the following packages from NuGet. They are referenced, not ve
 
 ## Rules for adding code from elsewhere
 
-- **Switch Toolbox** (KillzXGaming/Switch-Toolbox and its Switch 2 forks) is **GPL-3.0**. Do not copy its code into this repository unless the whole project is licensed GPL-3.0-compatible. Reading it as a format reference and writing our own implementation is fine.
+- **Switch Toolbox** (KillzXGaming/Switch-Toolbox and its Switch 2 forks) is **GPL-3.0**, the same licence as this project (see [LICENSE](LICENSE)). So far it has only been read as a format reference; code adapted from it must keep its copyright notices and be credited here and in the source file.
 - The original **Syroot NintenTools.Bfres** library is **MIT**. Forks may carry different licences: check the fork's own LICENSE before reusing any code, and list it here.
 - Format documentation from community wikis (e.g. the Zelda modding EPD wiki for Phive/Havok) may be used as a reference; credit it in the relevant source file.
 - No game data (romfs/exefs files, extracted models, textures, audio) may be committed.
