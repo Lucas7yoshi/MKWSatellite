@@ -46,7 +46,7 @@ public sealed class SatelliteSettings
     {
         var path = SavePath;
         var json = JsonSerializer.Serialize(new SatelliteSettings { Romfs = [.. Romfs], ModOutput = string.IsNullOrWhiteSpace(ModOutput) ? null : ModOutput },
-            new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+            SatelliteSettingsJson.Default.SatelliteSettings);
         File.WriteAllText(path, json + Environment.NewLine);
         FilePath = path;
         Source = path;
@@ -80,7 +80,7 @@ public sealed class SatelliteSettings
 
         if (FindFile() is { } path)
         {
-            var s = JsonSerializer.Deserialize<SatelliteSettings>(File.ReadAllText(path)) ?? new SatelliteSettings();
+            var s = JsonSerializer.Deserialize(File.ReadAllText(path), SatelliteSettingsJson.Default.SatelliteSettings) ?? new SatelliteSettings();
             s.Source = path;
             s.FilePath = path;
             return s;
@@ -88,3 +88,8 @@ public sealed class SatelliteSettings
         return new SatelliteSettings();
     }
 }
+
+/// <summary>Source-generated JSON for the settings file (works in trimmed builds, which disable reflection-based JSON).</summary>
+[JsonSourceGenerationOptions(WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(SatelliteSettings))]
+internal sealed partial class SatelliteSettingsJson : JsonSerializerContext;

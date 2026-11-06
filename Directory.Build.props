@@ -9,5 +9,8 @@
     <!-- Keep local machine paths out of build outputs (PDBs, CallerFilePath, etc.). -->
     <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
     <Authors>MKWSatellite contributors</Authors>
+    <Product>MKWSatellite</Product>
+    <!-- Release version; dist/publish.ps1 can override it with -Version. -->
+    <Version>0.0.2</Version>
   </PropertyGroup>
 </Project>

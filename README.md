@@ -16,7 +16,15 @@ item boxes, AI routes and, later, collision surfaces.
 | `src/MKWSatellite.Cli` | `mkwsat` command-line tools (`info`, `banc`, `scan`, `dump`, `course`). |
 | `tests/MKWSatellite.Formats.Tests` | Unit tests that run without game data. |
 
-## Requirements
+## Download
+
+Release packages (from 0.0.2) contain the viewer. Take the one for your system (`win-x64`, `linux-x64`, `osx-arm64`;
+nothing else to install), unpack it and run `MKWSatellite`, then set your romfs under **Game data** (below). The
+`portable` package is smaller and runs on any OS but needs the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+(`MKWSatellite.exe`, or `dotnet MKWSatellite.dll`). Linux and macOS are **untested**. Building packages:
+[dist/README.md](dist/README.md).
+
+## Requirements (building from source)
 
 - .NET 10 SDK
 - An extracted romfs of the game (base, plus optionally an update romfs layered on top)

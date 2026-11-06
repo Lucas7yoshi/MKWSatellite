@@ -16,6 +16,7 @@ Start every session by reading `docs/ROADMAP.md` (plan + progress log), `docs/DE
 - `mkwsat` subcommands (`course`, `terrain`, `model`, `tex`, `dump`, `ground`, `areafit`, ...) check formats against
   the data; `MKWSAT_ALL=1` makes `course`/`model` list every type/shape.
 - To let the user run the app while you keep building, copy the App bin folder elsewhere and run the copy.
+- Release packages: `pwsh dist/publish.ps1` (viewer only: self-contained folders per OS + a portable framework-dependent one; see dist/README.md).
 
 ## Rules (from the user)
 - Never commit absolute paths from the user's machine, game data, keys (`*.keys`), or screenshots.

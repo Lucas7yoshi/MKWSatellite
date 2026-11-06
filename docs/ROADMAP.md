@@ -63,3 +63,6 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | PNG writer simplified to plain unfiltered RGBA with fastest zlib; compress the output with an external optimiser (oxipng) instead. |
 | 2026-11-05 | Viewer: "Game data" section edits the romfs folders and mod output, writes mkwsat.local.json and reloads the game data in place (first run no longer needs a hand-written config). |
 | 2026-11-05 | Text fields: copy/paste and Ctrl shortcuts work (Silk.NET's ImGui controller never set the clipboard callbacks or sent ImGuiMod_* keys; ImGuiClipboard does both). Tagged v0.0.1. |
+| 2026-11-05 | Viewer: fences, audience and other scenery are shown by default. |
+| 2026-11-05 | Viewer: first-person camera as a separate view mode (right-drag look with captured cursor, WASD along the view, E/Q up/down, Shift faster, wheel sets speed); starts at the first lap point looking down the lap path. `--first-person`. |
+| 2026-11-05 | Version 0.0.2, first release. `dist/publish.ps1` builds the viewer as plain folders: self-contained per OS (win-x64, linux-x64, osx-arm64; untrimmed) and a portable framework-dependent one; English resources only, no PDBs. Settings JSON is source-generated and the GLFW backends are registered explicitly. Linux/macOS untested. Repo moved to GitHub. |

@@ -2,6 +2,10 @@
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 
+// Register the GLFW backends directly: Silk otherwise finds them by reflection, which trimmed builds can strip.
+Silk.NET.Windowing.Glfw.GlfwWindowing.RegisterPlatform();
+Silk.NET.Input.Glfw.GlfwInput.RegisterPlatform();
+
 var options = AppOptions.Parse(args);
 
 var windowOptions = WindowOptions.Default with

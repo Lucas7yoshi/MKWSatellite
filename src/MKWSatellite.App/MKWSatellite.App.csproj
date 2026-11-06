@@ -5,6 +5,13 @@
     <AssemblyName>MKWSatellite</AssemblyName>
   </PropertyGroup>
 
+  <!-- Publishing (see dist/README.md): English resources only, no PDBs. -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true'">
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Silk.NET.Input" />
     <PackageReference Include="Silk.NET.OpenGL" />

@@ -1,6 +1,6 @@
 # Third-party notices
 
-MKWSatellite uses the following packages from NuGet. They are referenced, not vendored; their licences apply to their own code.
+MKWSatellite uses the following packages from NuGet. They are referenced, not vendored; their licences apply to their own code. Release packages (`dist/`) redistribute the App's package binaries, including the native GLFW and cimgui libraries, together with this file.
 
 | Package | Used by | Licence |
 |---|---|---|
@@ -8,6 +8,8 @@ MKWSatellite uses the following packages from NuGet. They are referenced, not ve
 | [Silk.NET](https://github.com/dotnet/Silk.NET) (Windowing, Input, OpenGL, OpenGL.Extensions.ImGui) | App | MIT |
 | [ImGui.NET](https://github.com/ImGuiNET/ImGui.NET) (via Silk.NET ImGui extension) | App | MIT |
 | [Dear ImGui](https://github.com/ocornut/imgui) (native, via ImGui.NET) | App | MIT |
+| [GLFW](https://www.glfw.org/) (native, via Silk.NET / Ultz.Native.GLFW) | App | zlib/libpng |
+| Microsoft.Extensions.DependencyModel, Microsoft.DotNet.PlatformAbstractions (via Silk.NET) | App | MIT |
 | [System.CommandLine](https://github.com/dotnet/command-line-api) | Cli | MIT |
 | [xUnit](https://github.com/xunit/xunit), Microsoft.NET.Test.Sdk, coverlet | Tests only | Apache-2.0 / MIT |
 
