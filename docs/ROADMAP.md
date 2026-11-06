@@ -62,3 +62,4 @@ Phive collision: done 2026-11-05 (formats/collision.md). Editing and saving: sta
 | 2026-11-05 | Lap-out timer traced: state machine with a 400-frame grace path gated by a never-written global (likely debug), so retail rescues on the first frame outside every progress zone. |
 | 2026-11-05 | PNG writer simplified to plain unfiltered RGBA with fastest zlib; compress the output with an external optimiser (oxipng) instead. |
 | 2026-11-05 | Viewer: "Game data" section edits the romfs folders and mod output, writes mkwsat.local.json and reloads the game data in place (first run no longer needs a hand-written config). |
+| 2026-11-05 | Text fields: copy/paste and Ctrl shortcuts work (Silk.NET's ImGui controller never set the clipboard callbacks or sent ImGuiMod_* keys; ImGuiClipboard does both). Tagged v0.0.1. |

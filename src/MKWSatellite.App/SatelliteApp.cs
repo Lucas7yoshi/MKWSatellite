@@ -168,6 +168,7 @@ public sealed partial class SatelliteApp : IDisposable
         _imgui = _builtInFont
             ? new ImGuiController(_gl, _window, _input)
             : new ImGuiController(_gl, _window, _input, new ImGuiFontConfig(font, (int)MathF.Round(14 * scale)));
+        ImGuiClipboard.Install(_input);
         ImGui.GetStyle().WindowRounding = 0;
         ImGui.GetStyle().ScaleAllSizes(scale);
         _uiScale = scale;
@@ -399,6 +400,7 @@ public sealed partial class SatelliteApp : IDisposable
             ResizeWindow(s / _uiScale);
             ApplyUiScale(s);
         }
+        ImGuiClipboard.SubmitModifiers();
         _imgui.Update((float)delta);
         HandleEditKeys();
         UpdateViewportRect();
