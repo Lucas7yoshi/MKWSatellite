@@ -137,17 +137,27 @@ Checks in order (`st` = ground state at `kart+0x160`):
   Biscuit, Candy, ChocoChip, Bone. **Every other SubMaterial is Gravel**: Kusa, Soil, Sand, Snow, Ice, Cloud, Mud,
   Leaf, petals/flowers, Undefined... So Gravel is chosen by the surface, not by the gameplay material: a `Road`
   triangle with `Soil` (Moo Moo Meadows' track) or `Snow` (DK Summit) uses the Gravel stats.
-- **Dirt:** the contact builder `sub_71002008B0` (from 0x71002016AC) sets ground bits 9/10/11 for `LowDirt`/`Dirt`/
-  `HighDirt` and then the dirt rate to 1.0 (0x710020665C). So all three Dirt materials use the Dirt columns, which hold
-  no values in 1.8. What that does to speed is **unverified** (the `VehicleGParam` `DirtSpeedParam` rates may apply).
-- **Water** comes from the kart's depth in a water surface (0x7100204E10–0x7100204E70: depth below −0.1 sets the
-  water bit), not from a triangle. The viewer shows the `Water` material as the Water group as a stand-in
-  (**unverified**). `Shallows` and `MuddyWater` go by their SubMaterial here.
+- **Dirt:** the contact builder `sub_71002008B0` loads the ground contact's Material (`ldr w26, [record, #0xD8]` at
+  0x710020166C) and, while grounded (`st+0x5C` bit 5 set, bit 17 clear), sets bit 9 for `LowDirt` (5), bit 10 for
+  `Dirt` (6; bit 11 instead when `st[0x28]+0x48` bit 7 is set) and bit 11 for `HighDirt` (7). Any of bits 9–11 sets
+  the dirt rate `st+0x298` to 1.0 (0x7100201734 → 0x710020665C). The same compare chain sends `HighSlip` (9),
+  `Dash` (16) and `Glide` (18) to other bits, which confirms the Material numbering. So all three Dirt materials use
+  the Dirt columns, which hold no values in 1.8. What that does to speed is **unverified** (the `VehicleGParam`
+  `DirtSpeedParam` rates may apply).
+- **Water** comes from a separate contact slot (record 6 of the contact list, `+0x690`), not from the ground
+  triangle: when that slot has a hit (`+0x14` bit 0, 0x7100201124), its depth `+0xB8` below −0.1 (or −0.6) sets
+  `st+0x5C` bits 18/24 and the kart's water bit, and a second depth test sets bit 25 (0x7100204E10–0x7100204E70).
+  The same slot's Material is compared with `MuddyWater` (26) and `Lava` (27), so it is a liquid probe. Which
+  collision it hits (probably the `World_Game03_Water` compounds and Water-material shapes, not loaded yet) is
+  **unverified**; the viewer shows the `Water` material as the Water group as a stand-in. On the ground,
+  `Shallows` and `MuddyWater` go by their SubMaterial.
 - No other gameplay material is tested: `Slip`, `Dash`, `Gravity`, `Bumpy`, `Glide`... all go by SubMaterial. Glide
   speed (`TopSpeedGlide`) and `Acceleration` are read separately. Nothing in the block checks for being airborne, so
   the last contact presumably still counts in the air (**unverified**).
-- The contact record offsets `+0xD8` (Material) and `+0xDC` (SubMaterial) are inferred from the values compared
-  (bound 33 = `Bone`; `+0xD8` is compared with `Trampoline`/`MuddyWater` elsewhere).
+- Contact record offsets: `+0xD8` Material and `+0xDC` SubMaterial, both PhiveConfig indices. Checked: `+0xD8` is
+  compared with LowDirt/Dirt/HighDirt/HighSlip/Dash/Glide/MuddyWater/Lava, and at 0x7100207760 the pair
+  `MuddyWater` (26) + SubMaterial `GhostSwamp` (22) sets `st+0x5C` bit 21; the Tarmac test bounds `+0xDC` at 33
+  (`Bone`, the last SubMaterial).
 - Stat enum (string table 0x7103592098): 0 None, 1 TopSpeedTarmac, 2 TopSpeedGravel, 3 TopSpeedDirt, 4 TopSpeedWater,
   5 TopSpeedGlide, 6 TopSpeedRailSlide, 7 TopSpeedWallRide, 8 Acceleration, 9 Weight, 10 HandlingTarmac,
   11 HandlingGravel, 12 HandlingDirt, 13 HandlingWater, 14 HandlingGlide, 15 HandlingGrip, 16 TireGrip,

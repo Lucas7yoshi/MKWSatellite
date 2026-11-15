@@ -22,7 +22,7 @@ public enum PerformanceSurface
 public static class PerformanceSurfaces
 {
     /// <summary>One line on where the mapping comes from, for the UI.</summary>
-    public const string Source = "Traced in the 1.8 code; Water drawn on Water-material collision (unverified)";
+    public const string Source = "Traced in the 1.8 code; Water is a liquid probe, drawn on Water material (unverified)";
 
     /// <summary>
     /// SubMaterials that select Tarmac (bit = SubMaterialCollection index, mask 0x27C05E0F0 in the code): Asphalt,
