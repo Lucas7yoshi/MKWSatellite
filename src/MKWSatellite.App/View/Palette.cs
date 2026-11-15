@@ -145,6 +145,16 @@ public static class Palette
         _ => Rgb(175, 175, 175),
     };
 
+    /// <summary>Collision colour by kart performance stat group.</summary>
+    public static uint ForPerformanceSurface(MKWSatellite.Formats.Phive.PerformanceSurface p) => p switch
+    {
+        MKWSatellite.Formats.Phive.PerformanceSurface.Tarmac => Rgb(120, 125, 140),
+        MKWSatellite.Formats.Phive.PerformanceSurface.Gravel => Rgb(215, 150, 60),
+        MKWSatellite.Formats.Phive.PerformanceSurface.Water => Rgb(40, 130, 255),
+        MKWSatellite.Formats.Phive.PerformanceSurface.Dirt => Rgb(120, 70, 30),
+        _ => Rgb(60, 60, 64),
+    };
+
     /// <summary>Collision colour by surface (SubMaterialCollection name); unknown names get a stable hashed colour.</summary>
     public static uint ForCollisionSurface(string s) => s switch
     {

@@ -45,6 +45,13 @@ public sealed class ViewLayers
     public bool WorldPieces = true;
     /// <summary>Collision mesh (Phive) coloured by material or surface; volumes are sensors, Valley and AirWall.</summary>
     public bool Collision = false, CollisionVolumes = true, CollisionEdges = true, CollisionBySurface = false;
+    /// <summary>
+    /// Colour collision by kart performance stat group (Tarmac / Gravel / Water) instead; takes precedence over
+    /// <see cref="CollisionBySurface"/>. <see cref="CollisionPerformanceOnly"/> hides everything outside the groups.
+    /// </summary>
+    public bool CollisionByPerformance = false, CollisionPerformanceOnly = false;
+    /// <summary>Placed objects' own collision that is not baked into the static compounds (traffic, gates...).</summary>
+    public bool CollisionObjects = true;
     public float CollisionOpacity = 1f, CollisionVolumeOpacity = 0.35f;
     /// <summary>Gameplay material whose volumes are highlighted (drawn stronger and through walls); empty = none.</summary>
     public string CollisionHighlight = "Rescue";

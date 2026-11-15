@@ -117,10 +117,71 @@ boxes have no actor in the race scene; their source is unknown.
 
 Reading a course takes 0.1–0.5 s. DK Summit's snowy road is `Slip`/`Snow`, which matches how it drives.
 
+## Performance surfaces (Tarmac / Gravel / Water)
+
+Kart stats have per-terrain columns in `System/CombinationDataTableData/PerformanceParamTableData` (rows `Level00`
+to `Level25`, column enum below). Traced in the 1.8 executable: `sub_710065B660`, block 0x710065BAD8–0x710065BB4C,
+writes a (top speed, handling) stat pair to the kart's performance object (`kart+0x178`, fields `+0x90`/`+0x94`).
+Checks in order (`st` = ground state at `kart+0x160`):
+
+| # | Condition | Top speed / handling column |
+|---|---|---|
+| 1 | `st+0x5C` bit 14 (rail grind) | `TopSpeedRailSlide`; handling unchanged |
+| 2 | `st+0x5C` bit 17 (wall ride) | `TopSpeedWallRide`; handling unchanged |
+| 3 | `kart+0x190` bit 9 or `st+0x5C` bit 25 (water) | `TopSpeedWater` / `HandlingWater` |
+| 4 | dirt rate `st+0x298` > 0 | `TopSpeedDirt` / `HandlingDirt` |
+| 5 | contact SubMaterial in mask `0x27C05E0F0` | `TopSpeedTarmac` / `HandlingTarmac` |
+| 6 | anything else | `TopSpeedGravel` / `HandlingGravel` |
+
+- **Tarmac SubMaterials:** Asphalt, Concrete, Stone, Wood, Iron, Kanaami, Glass, Carpet, Rainbow, Vinyl, Plastic,
+  Biscuit, Candy, ChocoChip, Bone. **Every other SubMaterial is Gravel**: Kusa, Soil, Sand, Snow, Ice, Cloud, Mud,
+  Leaf, petals/flowers, Undefined... So Gravel is chosen by the surface, not by the gameplay material: a `Road`
+  triangle with `Soil` (Moo Moo Meadows' track) or `Snow` (DK Summit) uses the Gravel stats.
+- **Dirt:** the contact builder `sub_71002008B0` (from 0x71002016AC) sets ground bits 9/10/11 for `LowDirt`/`Dirt`/
+  `HighDirt` and then the dirt rate to 1.0 (0x710020665C). So all three Dirt materials use the Dirt columns, which hold
+  no values in 1.8. What that does to speed is **unverified** (the `VehicleGParam` `DirtSpeedParam` rates may apply).
+- **Water** comes from the kart's depth in a water surface (0x7100204E10–0x7100204E70: depth below −0.1 sets the
+  water bit), not from a triangle. The viewer shows the `Water` material as the Water group as a stand-in
+  (**unverified**). `Shallows` and `MuddyWater` go by their SubMaterial here.
+- No other gameplay material is tested: `Slip`, `Dash`, `Gravity`, `Bumpy`, `Glide`... all go by SubMaterial. Glide
+  speed (`TopSpeedGlide`) and `Acceleration` are read separately. Nothing in the block checks for being airborne, so
+  the last contact presumably still counts in the air (**unverified**).
+- The contact record offsets `+0xD8` (Material) and `+0xDC` (SubMaterial) are inferred from the values compared
+  (bound 33 = `Bone`; `+0xD8` is compared with `Trampoline`/`MuddyWater` elsewhere).
+- Stat enum (string table 0x7103592098): 0 None, 1 TopSpeedTarmac, 2 TopSpeedGravel, 3 TopSpeedDirt, 4 TopSpeedWater,
+  5 TopSpeedGlide, 6 TopSpeedRailSlide, 7 TopSpeedWallRide, 8 Acceleration, 9 Weight, 10 HandlingTarmac,
+  11 HandlingGravel, 12 HandlingDirt, 13 HandlingWater, 14 HandlingGlide, 15 HandlingGrip, 16 TireGrip,
+  17 CoinSpeedRatio, 18 DriftDashTime, 19 InvincibleRatio. The table is cached as [27][20] floats at 0x71037B8C4C
+  (`sub_7100993200`); row 26 replaces the level when `kart[0x10]+0x110` bit 3 is set (all stats but Weight).
+
+`PerformanceSurfaces.Of` (Formats) implements rows 3–6 per triangle, with walls, volumes, poles and pickups as
+"none".
+
+## Object collision
+
+Placed objects can have their own shapes: ActorGParam `Components.PhysicsRef` → PhysicsGParam
+`ControllerSetResourcePath` → ControllerSetParam `ShapeNamePathAry[].FilePath` → ShapeParam `PhshMesh[].PhshMeshPath`
+(the same chain as `_Fix` stage shapes), placed with the object's scale, Euler XYZ rotation and position.
+`mkwsat collision <course> --objects` lists them and how many of each one's placed vertices already lie on the loaded
+compounds (within 0.25 units):
+
+| Course | Types | Already in the compounds (100%) | Not in them (0%) |
+|---|---|---|---|
+| Crown City | 18 | flag ropes, arrow signs, audience stands, glide boards, `SystemObj_CollisionDogleg_00` air walls | traffic (`CmnObj_Mobcar*_MoveN_00`, `Mobship*_Move_00`), vending machines |
+| DK Summit | 7 | audience stands, arrow signs, flag ropes, glide ramp | `CmnObj_MobcarCarrier000_MoveN_00` |
+| Rainbow Road | 29 | one glide board | lap and goal gates, arrow signs; dash and glide plates 0–78% (only where they touch the road) |
+
+So static objects are baked into the static compounds, and moving or spawned ones are not. The viewer adds every
+instance with less than 90% of its vertices already present ("Object collision", on by default), at the position the
+scene gives. Moving objects (traffic, boats) start there and then follow their paths, so their drawn collision is a
+snapshot. Objects whose shape is a primitive (`Box`, `Sphere`... in ShapeParam, no `PhshMesh`) are not drawn yet.
+
 ## Viewer
 
 "Collision (Phive)" in the left panel (off by default) loads the course's collision on a worker thread.
-- Colour by gameplay material or by surface.
+- Colour by gameplay material, by surface, or by **performance** group (Tarmac / Gravel / Water / Dirt, above).
+  "Only performance surfaces" hides everything else (walls, volumes...).
+- "Object collision": placed objects' own shapes that are not in the compounds (see above), on by default.
 - Opacity slider and triangle edges.
 - Volumes (sensor layers, the Valley layer, AirWall/Valley/Rescue/Fall materials) are drawn see-through and can be
   hidden.
@@ -128,8 +189,9 @@ Reading a course takes 0.1–0.5 s. DK Summit's snowy road is `Slip`/`Snow`, whi
   stronger, with light edges and faintly through walls; "Volume opacity" sets the others. `Rescue` is also used on
   solid-looking meshes (e.g. Rainbow Road's clouds and the space station's undersides), not only on boxes.
 - A per-material list with counts; unticking a material hides it.
-- Hovering shows the material, surface, tags, layer and position under the cursor.
-- Screenshots: `--layer Collision=1 [--layer CollisionBySurface=1] [--layer CollisionHighlight=Rescue]`.
+- Hovering shows the material, surface, tags, layer, performance group, object (if any) and position under the cursor.
+- Screenshots: `--layer Collision=1 [--layer CollisionBySurface=1 | --layer CollisionByPerformance=1
+  [--layer CollisionPerformanceOnly=1]] [--layer CollisionObjects=0] [--layer CollisionHighlight=Rescue]`.
 
 ## Vehicle hitboxes (bonus, **unverified**)
 
@@ -148,5 +210,5 @@ Vehicles have no Phive shape: their PhysicsGParam (`VehicleBase`) is just `IsVeh
 
 Character (driver) Phive params are cloth/helper bones (`HelperBoneParam`), not hitboxes. Not drawn in the viewer.
 
-Not done: dynamic actors' own collision (only what is baked into the compounds), `World_Game03_Water`/`_Foliage`, and
+Not done: objects with primitive-only shapes, moving objects' paths, `World_Game03_Water`/`_Foliage`, and
 kart/character hitboxes.

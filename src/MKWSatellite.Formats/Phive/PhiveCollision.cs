@@ -23,6 +23,13 @@ public sealed class CollisionMesh
     /// <summary>Shape classes met but not decoded, with counts.</summary>
     public Dictionary<string, int> Skipped { get; } = [];
 
+    /// <summary>Per triangle: index into <see cref="Objects"/> for a placed object's own shape, -1 for static collision.</summary>
+    public List<int> TriangleObject { get; } = [];
+    /// <summary>Placed objects whose own collision was added (see <c>CourseCollision.AddObjects</c>).</summary>
+    public List<string> Objects { get; } = [];
+    /// <summary>Object index given to triangles added from now on (-1 = static).</summary>
+    public int CurrentObject { get; set; } = -1;
+
     public int TriangleCount => TriangleMaterial.Count;
 
     internal int MaterialId(CollisionMaterial? m)
@@ -36,6 +43,18 @@ public sealed class CollisionMesh
     {
         Positions.Add(a); Positions.Add(b); Positions.Add(c);
         TriangleMaterial.Add(material);
+        TriangleObject.Add(CurrentObject);
+    }
+
+    /// <summary>Appends another mesh's triangles (materials remapped), tagged with <see cref="CurrentObject"/>.</summary>
+    public void Append(CollisionMesh other)
+    {
+        var map = other.Materials.Select(m => MaterialId(m)).ToArray();
+        for (var t = 0; t < other.TriangleCount; t++)
+        {
+            var m = other.TriangleMaterial[t];
+            Add(other.Positions[3 * t], other.Positions[3 * t + 1], other.Positions[3 * t + 2], m < 0 ? -1 : map[m]);
+        }
     }
 }
 

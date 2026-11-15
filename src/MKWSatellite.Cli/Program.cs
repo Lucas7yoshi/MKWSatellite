@@ -670,7 +670,8 @@ root.Subcommands.Add(terCmd);
 // collision: read a course's Phive collision; list sources, materials, and how the lap path sits on it
 var colCourse = new Argument<string>("course") { Description = "Race scene name filter." };
 var colObj = new Option<string?>("--obj") { Description = "Write the collision mesh as OBJ (one group per material)." };
-var colCmd = new Command("collision", "Read a course's collision (Phive); list sources and materials, lap path height over it.") { colCourse, colObj };
+var colObjects = new Option<bool>("--objects") { Description = "List placed objects with their own collision meshes and how much of each is already in the compounds." };
+var colCmd = new Command("collision", "Read a course's collision (Phive); list sources and materials, lap path height over it.") { colCourse, colObj, colObjects };
 colCmd.SetAction(parse =>
 {
     var fs = OpenFs(parse.GetValue(romfsOption));
@@ -692,6 +693,47 @@ colCmd.SetAction(parse =>
     var names = new MKWSatellite.Formats.Phive.PhiveNames(fs);
     foreach (var g in mesh.TriangleMaterial.GroupBy(m => m).OrderByDescending(g => g.Count()))
         Console.WriteLine($"  {g.Count(),8} tris  {(g.Key < 0 ? "(none)" : names.Describe(mesh.Materials[g.Key]))}");
+
+    if (parse.GetValue(colObjects))
+    {
+        // Objects with their own Phive meshes: is their placed shape already in the loaded compounds?
+        var snap = new HashSet<(int, int, int)>();
+        static (int, int, int) Key(System.Numerics.Vector3 v) => ((int)MathF.Round(v.X * 4), (int)MathF.Round(v.Y * 4), (int)MathF.Round(v.Z * 4));
+        foreach (var v in mesh.Positions) snap.Add(Key(v));
+        bool Near(System.Numerics.Vector3 v)
+        {
+            var (x, y, z) = Key(v);
+            for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) for (var dz = -1; dz <= 1; dz++)
+                if (snap.Contains((x + dx, y + dy, z + dz))) return true;
+            return false;
+        }
+        var rows = new Dictionary<string, (int Count, int Verts, int Hit, int Tris, HashSet<string> Mats)>();
+        foreach (var o in course.Objects.Where(o => !o.Type.StartsWith("Stage_", StringComparison.Ordinal)))
+        {
+            var paths = resolver.CollisionMeshPaths(o.Type);
+            if (paths.Count == 0) continue;
+            var world = System.Numerics.Matrix4x4.CreateScale(o.Actor.Scale) * MKWSatellite.Formats.Course.CourseMath.EulerXyz(o.Actor.Rotate)
+                        * System.Numerics.Matrix4x4.CreateTranslation(o.Position);
+            var om = new MKWSatellite.Formats.Phive.CollisionMesh();
+            foreach (var w in paths)
+            {
+                var path = MKWSatellite.Formats.Phive.CourseCollision.ShapePath(w);
+                if (!fs.Exists(path)) continue;
+                try { MKWSatellite.Formats.Phive.PhiveCollision.ReadShape(fs.Read(path), world, om); } catch (Exception e) { Console.WriteLine($"  {o.Type}: {e.Message}"); }
+            }
+            var r = rows.TryGetValue(o.Type, out var old) ? old : (Count: 0, Verts: 0, Hit: 0, Tris: 0, Mats: new HashSet<string>());
+            r.Count++; r.Tris += om.TriangleCount; r.Verts += om.Positions.Count; r.Hit += om.Positions.Count(Near);
+            foreach (var m in om.Materials) r.Mats.Add(names.Describe(m));
+            rows[o.Type] = r;
+        }
+        Console.WriteLine($"objects with own collision meshes: {rows.Count} types");
+        foreach (var (t, r) in rows.OrderByDescending(kv => kv.Value.Tris))
+            Console.WriteLine($"  {t,-44} x{r.Count,-3} {r.Tris,7} tris  in compounds {(r.Verts == 0 ? 0 : 100.0 * r.Hit / r.Verts),5:0}%  {string.Join(", ", r.Mats.Take(4))}");
+        var before = mesh.TriangleCount;
+        var n = MKWSatellite.Formats.Phive.CourseCollision.AddObjects(fs, course, mesh, resolver.CollisionMeshPaths, errors);
+        Console.WriteLine($"viewer adds {n} object instances ({mesh.TriangleCount - before} triangles): " +
+                          string.Join(", ", mesh.Objects.GroupBy(o => o).Select(g => $"{g.Key} x{g.Count()}")));
+    }
 
     // Ground under each lap node: nearest upward-facing hit straight below (within 30 units above / 200 below).
     var below = new List<float>();
@@ -844,6 +886,52 @@ vehCmd.SetAction(parse =>
     return 0;
 });
 root.Subcommands.Add(vehCmd);
+
+// gyml: list, search or dump the BYML files inside System/GymlArchive/*.sarc.zs
+var gyArchive = new Argument<string>("archive") { Description = "Archive name part, e.g. general_format (exact archive base name wins)." };
+var gyName = new Argument<string?>("name") { Description = "File name substring (lists matches; dumps as YAML if exactly one or --yaml).", Arity = ArgumentArity.ZeroOrOne };
+var gyGrep = new Option<string?>("--grep") { Description = "List files whose YAML text contains this (case-insensitive)." };
+var gyYaml = new Option<bool>("--yaml") { Description = "Dump every matching file as YAML." };
+var gyCmd = new Command("gyml", "List, search or dump files in System/GymlArchive SARCs.") { gyArchive, gyName, gyGrep, gyYaml };
+gyCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    const string dir = "System/GymlArchive";
+    var want = parse.GetValue(gyArchive)!;
+    var all = fs.ListFiles(dir, "*.sarc.zs").ToList();
+    var archive = all.LastOrDefault(a => a.StartsWith(want + ".", StringComparison.Ordinal))
+                  ?? all.LastOrDefault(a => a.Contains(want, StringComparison.OrdinalIgnoreCase));
+    if (archive is null) { Console.Error.WriteLine($"no archive matching {want}: {string.Join(", ", all)}"); return 1; }
+    var sarc = new MKWSatellite.Formats.Archives.Sarc(fs.Read($"{dir}/{archive}"));
+    var names = sarc.FileNames.Where(n => parse.GetValue(gyName) is not { } f || n.Contains(f, StringComparison.OrdinalIgnoreCase)).Order().ToList();
+    string Yaml(string n)
+    {
+        var sw = new StringWriter();
+        try { BymlText.WriteYaml(sw, BymlReader.Parse(sarc.TryGet(n, out var b) ? b.ToArray() : []).Root); }
+        catch (Exception e) { sw.Write($"# not BYML: {e.Message}"); }
+        return sw.ToString();
+    }
+    if (parse.GetValue(gyGrep) is { } g)
+    {
+        foreach (var n in names)
+        {
+            var lines = Yaml(n).Split('\n').Where(l => l.Contains(g, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (lines.Count == 0) continue;
+            Console.WriteLine($"{n} ({lines.Count})");
+            foreach (var l in lines.Take(5)) Console.WriteLine($"    {l.Trim()}");
+        }
+        return 0;
+    }
+    if (parse.GetValue(gyYaml) || names.Count == 1)
+    {
+        foreach (var n in names) { Console.WriteLine($"# {n}"); Console.WriteLine(Yaml(n)); }
+        return 0;
+    }
+    foreach (var n in names) Console.WriteLine(n);
+    return 0;
+});
+root.Subcommands.Add(gyCmd);
 
 return root.Parse(args).Invoke();
 

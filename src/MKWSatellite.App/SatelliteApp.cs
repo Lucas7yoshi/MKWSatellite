@@ -626,9 +626,26 @@ public sealed partial class SatelliteApp : IDisposable
         (m.Layer >= 0 && ((m.Layer & 0xFF) == 1 || (m.Layer >> 8 & 0xFF) == 22)) ||
         _phiveNames?.Material(m.Material) is "AirWall" or "Valley" or "Rescue" or "Fall";
 
-    /// <summary>Volumes keep their gameplay colour in surface mode (their surface says little).</summary>
-    private uint CollisionColor(CollisionMaterial m, bool bySurface) => _phiveNames is not { } n ? 0xFFAAAAAA
-        : bySurface && !IsCollisionVolume(m) ? Palette.ForCollisionSurface(n.SubMaterial(m.SubMaterial)) : Palette.ForCollisionMaterial(n.Material(m.Material));
+    /// <summary>Collision colour mode: 0 gameplay material, 1 surface, 2 performance stat group (+ 4: groups only).</summary>
+    private int CollisionMode => _view.Layers.CollisionByPerformance ? (_view.Layers.CollisionPerformanceOnly ? 6 : 2)
+        : _view.Layers.CollisionBySurface ? 1 : 0;
+
+    /// <summary>
+    /// Volumes keep their gameplay colour in surface mode (their surface says little). In performance mode, ground
+    /// outside the three stat groups is dark grey, or left out when only the groups are shown (volumes too).
+    /// </summary>
+    private uint CollisionColor(CollisionMaterial m, int mode)
+    {
+        if (_phiveNames is not { } n) return 0xFFAAAAAA;
+        var volume = IsCollisionVolume(m);
+        if ((mode & 2) != 0)
+        {
+            var p = volume ? PerformanceSurface.None : PerformanceSurfaces.Of(m, n);
+            if (p == PerformanceSurface.None && (mode & 4) != 0) return 0;
+            return volume ? Palette.ForCollisionMaterial(n.Material(m.Material)) : Palette.ForPerformanceSurface(p);
+        }
+        return mode == 1 && !volume ? Palette.ForCollisionSurface(n.SubMaterial(m.SubMaterial)) : Palette.ForCollisionMaterial(n.Material(m.Material));
+    }
 
     /// <summary>Starts reading the course's collision on a worker when the layer is on; uploads it when done.</summary>
     private void UpdateCollision()
@@ -646,6 +663,7 @@ public sealed partial class SatelliteApp : IDisposable
                 var sources = CourseCollision.SourcesFor(fs, course, resolver.CollisionMeshPaths);
                 var errors = new List<string>();
                 var mesh = CourseCollision.Load(fs, sources, errors);
+                CourseCollision.AddObjects(fs, course, mesh, resolver.CollisionMeshPaths, errors);
                 return (mesh, errors, sources.Count);
             });
         }
@@ -654,10 +672,11 @@ public sealed partial class SatelliteApp : IDisposable
             _collisionTask = null;
             if (t.IsFaulted) { _collisionStatus = $"collision failed: {t.Exception?.GetBaseException().Message}"; return; }
             var (mesh, errors, files) = t.Result;
-            _collision.SetColorMode(_view.Layers.CollisionBySurface);
+            _collision.SetColorMode(CollisionMode);
+            _collision.SetShowObjects(_view.Layers.CollisionObjects);
             _collision.Upload(mesh);
             _collisionErrors = errors;
-            _collisionStatus = $"{mesh.TriangleCount:N0} triangles from {files} files" + (errors.Count > 0 ? $", {errors.Count} errors" : "");
+            _collisionStatus = $"{mesh.TriangleCount:N0} triangles from {files} files + {mesh.Objects.Count} objects" + (errors.Count > 0 ? $", {errors.Count} errors" : "");
         }
     }
 
@@ -665,7 +684,8 @@ public sealed partial class SatelliteApp : IDisposable
     {
         UpdateCollision();
         if (_collision is null || _view.Course is null || !_view.Layers.Collision) return;
-        _collision.SetColorMode(_view.Layers.CollisionBySurface);
+        _collision.SetColorMode(CollisionMode);
+        _collision.SetShowObjects(_view.Layers.CollisionObjects);
         if (_collision.Mesh is { } mesh && _phiveNames is { } names)
         {
             var h = _view.Layers.CollisionHighlight;
@@ -698,7 +718,11 @@ public sealed partial class SatelliteApp : IDisposable
         if (_collision.Raycast(origin, dir, _view.Layers.CollisionVolumes) is not { } hit) { _collisionHover = null; return; }
         var m = mesh.TriangleMaterial[hit.Triangle];
         var p = origin + dir * hit.Distance;
+        var perf = m < 0 || IsCollisionVolume(mesh.Materials[m]) ? PerformanceSurface.None : PerformanceSurfaces.Of(mesh.Materials[m], _phiveNames);
+        var obj = mesh.TriangleObject[hit.Triangle];
         _collisionHover = (m < 0 ? "Collision (no material)" : _phiveNames.Describe(mesh.Materials[m])) +
+                          (perf != PerformanceSurface.None ? $"\nStats: {perf} (TopSpeed{perf} / Handling{perf})" : "") +
+                          (obj >= 0 ? $"\nObject: {mesh.Objects[obj]} (placed position; may move or spawn later)" : "") +
                           FormattableString.Invariant($"\nat {p.X:0.0}, {p.Y:0.0}, {p.Z:0.0}");
     }
 
@@ -1029,9 +1053,37 @@ public sealed partial class SatelliteApp : IDisposable
         }
         ImGui.SetNextItemWidth(120 * _uiScale);
         ImGui.SliderFloat("Collision opacity", ref L.CollisionOpacity, 0.1f, 1f, "%.2f");
-        var bySurface = L.CollisionBySurface ? 1 : 0;
+        var colourBy = L.CollisionByPerformance ? 2 : L.CollisionBySurface ? 1 : 0;
         ImGui.SetNextItemWidth(120 * _uiScale);
-        if (ImGui.Combo("Colour by", ref bySurface, "Material (gameplay)\0Surface (sub-material)\0")) L.CollisionBySurface = bySurface == 1;
+        if (ImGui.Combo("Colour by", ref colourBy, "Material (gameplay)\0Surface (sub-material)\0Performance (Tarmac / Gravel / Water)\0"))
+        {
+            L.CollisionBySurface = colourBy == 1;
+            L.CollisionByPerformance = colourBy == 2;
+        }
+        if (L.CollisionByPerformance)
+        {
+            foreach (var (p, what) in new[] { (PerformanceSurface.Tarmac, "TopSpeedTarmac / HandlingTarmac"),
+                         (PerformanceSurface.Gravel, "TopSpeedGravel / HandlingGravel"), (PerformanceSurface.Water, "TopSpeedWater / HandlingWater"),
+                         (PerformanceSurface.Dirt, "LowDirt/Dirt/HighDirt: Dirt columns, empty in 1.8") })
+            {
+                var sp = ImGui.GetCursorScreenPos();
+                var sz = ImGui.GetTextLineHeight() * 0.75f;
+                var x = 22 * _uiScale;
+                ImGui.GetWindowDrawList().AddRectFilled(sp + new Vector2(x, (ImGui.GetTextLineHeight() - sz) / 2),
+                    sp + new Vector2(x + sz, (ImGui.GetTextLineHeight() + sz) / 2), Palette.ForPerformanceSurface(p));
+                ImGui.Dummy(new Vector2(x + sz + 4, 0));
+                ImGui.SameLine();
+                ImGui.TextUnformatted($"{p}: {what}");
+            }
+            if (ImGui.Checkbox("Only performance surfaces", ref L.CollisionPerformanceOnly)) _view.Invalidate();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Hides walls, volumes and anything else that is not one of the three stat groups.");
+            ImGui.TextDisabled(PerformanceSurfaces.Source);
+        }
+        toggle(_collision?.Mesh is { } om ? $"Object collision ({om.Objects.Count})" : "Object collision", ref L.CollisionObjects);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Placed objects' own collision that is not baked into the course: traffic, boats, Rainbow Road's gates...\n" +
+                             "Drawn where the scene places them; moving ones start there.");
         toggle("Volumes (respawn, valley, air walls...)", ref L.CollisionVolumes);
         toggle("Triangle edges", ref L.CollisionEdges);
         if (_collision?.Mesh is not { } mesh || _phiveNames is not { } names) return;
@@ -1055,11 +1107,15 @@ public sealed partial class SatelliteApp : IDisposable
         // One row per name in the current colour mode; unticking hides those triangles.
         var counts = new Dictionary<int, int>();
         foreach (var m in mesh.TriangleMaterial) counts[m] = counts.GetValueOrDefault(m) + 1;
-        string Key(int i) => i < 0 ? "(none)" : L.CollisionBySurface ? names.SubMaterial(mesh.Materials[i].SubMaterial) : names.Material(mesh.Materials[i].Material);
+        string Key(int i) => i < 0 ? "(none)"
+            : L.CollisionByPerformance ? (IsCollisionVolume(mesh.Materials[i]) ? names.Material(mesh.Materials[i].Material)
+                : PerformanceSurfaces.Of(mesh.Materials[i], names) is var p and not PerformanceSurface.None ? p.ToString()
+                : "Other: " + names.Material(mesh.Materials[i].Material))
+            : L.CollisionBySurface ? names.SubMaterial(mesh.Materials[i].SubMaterial) : names.Material(mesh.Materials[i].Material);
         foreach (var g in counts.Keys.GroupBy(Key).OrderByDescending(g => g.Sum(i => counts[i])))
         {
             var visible = g.Any(i => !_collision.IsHidden(i));
-            var c = g.Key == "(none)" ? 0xFF808080 : L.CollisionBySurface ? Palette.ForCollisionSurface(g.Key) : Palette.ForCollisionMaterial(g.Key);
+            var c = g.Key == "(none)" ? 0xFF808080 : CollisionColor(mesh.Materials[g.First()], CollisionMode & 3);
             var p = ImGui.GetCursorScreenPos();
             var sz = ImGui.GetTextLineHeight() * 0.75f;
             var top = (ImGui.GetFrameHeight() - sz) / 2;

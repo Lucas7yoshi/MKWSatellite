@@ -5,7 +5,8 @@ using Silk.NET.OpenGL;
 namespace MKWSatellite.App.Rendering;
 
 /// <summary>
-/// Draws a course's collision mesh (Phive), coloured per triangle by gameplay material or by surface, with thin
+/// Draws a course's collision mesh (Phive), coloured per triangle by a caller-chosen mode (gameplay material, surface,
+/// performance stat group), with thin
 /// triangle edges. Solid collision and volumes (sensor layers, Valley) are separate draw ranges. Keeps the triangles
 /// on the CPU for picking the surface under the cursor.
 /// </summary>
@@ -68,13 +69,16 @@ public sealed class CollisionRenderer : IDisposable
     private int _solidCount;        // triangles in the solid range
     private readonly HashSet<int> _hiddenMaterials = [];
     private readonly HashSet<int> _highlighted = [];
+    private uint[] _materialColor = [];   // per material in the current mode (alpha 0 = not drawn)
+    private bool _showObjects = true;
 
     public CollisionMesh? Mesh => _mesh;
     public bool HasData => _mesh is not null;
     /// <summary>True for materials drawn as volumes (sensor layers, Valley layer) rather than solid collision.</summary>
     public Func<CollisionMaterial, bool> IsVolume { get; set; } = _ => false;
-    public Func<CollisionMaterial, bool, uint> ColorOf { get; set; } = (_, _) => 0xFFAAAAAA;
-    public bool BySurface { get; private set; }
+    /// <summary>Colour of a material in a colour mode; alpha 0 leaves its triangles out (drawing and picking).</summary>
+    public Func<CollisionMaterial, int, uint> ColorOf { get; set; } = (_, _) => 0xFFAAAAAA;
+    public int ColorMode { get; private set; } = -1;
 
     public CollisionRenderer(GL gl)
     {
@@ -120,12 +124,23 @@ public sealed class CollisionRenderer : IDisposable
         if (hidden ? _hiddenMaterials.Add(material) : _hiddenMaterials.Remove(material)) UploadColors();
     }
 
-    public void SetColorMode(bool bySurface)
+    public void SetColorMode(int mode)
     {
-        if (BySurface == bySurface) return;
-        BySurface = bySurface;
+        if (ColorMode == mode) return;
+        ColorMode = mode;
         UploadColors();
     }
+
+    /// <summary>Shows or hides placed objects' own collision (triangles with an object index).</summary>
+    public void SetShowObjects(bool show)
+    {
+        if (_showObjects == show) return;
+        _showObjects = show;
+        UploadColors();
+    }
+
+    /// <summary>Re-reads every colour (after something <see cref="ColorOf"/> depends on changed).</summary>
+    public void Recolor() => UploadColors();
 
     /// <summary>Uploads a mesh (main thread). Positions, normals and barycentrics go in one buffer, colours in another.</summary>
     public unsafe void Upload(CollisionMesh mesh)
@@ -181,18 +196,27 @@ public sealed class CollisionRenderer : IDisposable
     {
         if (_mesh is not { } mesh) return;
         var colors = new uint[_order.Length * 3];
-        var cache = new Dictionary<int, uint>();
+        _materialColor = new uint[mesh.Materials.Count];
+        for (var m = 0; m < _materialColor.Length; m++)
+        {
+            var c = _hiddenMaterials.Contains(m) ? 0u : ColorOf(mesh.Materials[m], ColorMode);
+            _materialColor[m] = _highlighted.Contains(m) && c >> 24 != 0 ? c & 0x00FFFFFF | 0xFE000000 : c;
+        }
         for (var i = 0; i < _order.Length; i++)
         {
-            var m = mesh.TriangleMaterial[_order[i]];
-            if (!cache.TryGetValue(m, out var c))
-                cache[m] = c = _hiddenMaterials.Contains(m) ? 0u : m < 0 ? 0xFF808080
-                    : _highlighted.Contains(m) ? ColorOf(mesh.Materials[m], BySurface) & 0x00FFFFFF | 0xFE000000
-                    : ColorOf(mesh.Materials[m], BySurface);
+            var t = _order[i];
+            var c = Visible(mesh, t) ? (mesh.TriangleMaterial[t] is var m and >= 0 ? _materialColor[m] : 0xFF808080) : 0u;
             colors[3 * i] = colors[3 * i + 1] = colors[3 * i + 2] = c;
         }
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _colorVbo);
         fixed (uint* p = colors) _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(colors.Length * 4), p, BufferUsageARB.StaticDraw);
+    }
+
+    private bool Visible(CollisionMesh mesh, int t)
+    {
+        if (!_showObjects && mesh.TriangleObject[t] >= 0) return false;
+        var m = mesh.TriangleMaterial[t];
+        return m < 0 ? !_hiddenMaterials.Contains(-1) : m < _materialColor.Length && _materialColor[m] >> 24 != 0;
     }
 
     /// <summary>
@@ -272,8 +296,7 @@ public sealed class CollisionRenderer : IDisposable
             for (var i = range.Item1; i < range.Item2; i++)
             {
                 var t = order[i];
-                var m = mesh.TriangleMaterial[t];
-                if (m >= 0 && _hiddenMaterials.Contains(m)) continue;
+                if (!Visible(mesh, t)) continue;
                 // Moller-Trumbore
                 var a = P[3 * t];
                 var e1 = P[3 * t + 1] - a;

@@ -52,14 +52,72 @@ public static class CourseCollision
             foreach (var o in course.Objects.Where(o => o.Layer == CourseLayer.CourseFix && o.Type.StartsWith("Stage_", StringComparison.Ordinal)))
                 foreach (var work in stageShapes(o.Type))
                 {
-                    // Work/Phive/Shape/Dcc/<name>.phsh -> Phive/Shape/Dcc/<name>.Nin_Ounce_NVN2.bphsh.zs
-                    var rel = work.StartsWith("Work/", StringComparison.Ordinal) ? work[5..] : work;
-                    var path = Path.ChangeExtension(rel, null) + Suffix + ".bphsh.zs";
                     var world = Matrix4x4.CreateScale(o.Actor.Scale) * CourseMath.EulerXyz(o.Actor.Rotate) * Matrix4x4.CreateTranslation(o.Position);
-                    Add(fs, list, path.Replace('\\', '/'), false, world, o.Type);
+                    Add(fs, list, ShapePath(work), false, world, o.Type);
                 }
         }
         return list;
+    }
+
+    /// <summary>Phive shape path for a ShapeParam <c>PhshMeshPath</c> (<c>Work/Phive/Shape/Dcc/X.phsh</c>).</summary>
+    public static string ShapePath(string work)
+    {
+        var rel = work.StartsWith("Work/", StringComparison.Ordinal) ? work[5..] : work;
+        return (Path.ChangeExtension(rel, null) + Suffix + ".bphsh.zs").Replace('\\', '/');
+    }
+
+    /// <summary>
+    /// Adds placed objects' own collision meshes (ActorGParam PhysicsRef → ShapeParam <c>PhshMesh</c>) to
+    /// <paramref name="mesh"/>, placed with each object's transform. Static objects are already baked into the
+    /// compounds: an instance whose vertices are at least <paramref name="bakedShare"/> already present (within
+    /// 0.25 units) is skipped. What is left is mostly moving or spawned objects (traffic, Rainbow Road's gates),
+    /// drawn where the scene places them. Returns the number of instances added.
+    /// </summary>
+    public static int AddObjects(GameFileSystem fs, CourseScene course, CollisionMesh mesh, Func<string, IReadOnlyList<string>> meshPaths,
+        List<string>? errors = null, float bakedShare = 0.9f)
+    {
+        var snap = new HashSet<(int, int, int)>(mesh.Positions.Count);
+        foreach (var v in mesh.Positions) snap.Add(Key(v));
+        var added = 0;
+        foreach (var o in course.Objects)
+        {
+            if (o.Type.StartsWith("Stage_", StringComparison.Ordinal)) continue;
+            var paths = meshPaths(o.Type);
+            if (paths.Count == 0) continue;
+            var world = Matrix4x4.CreateScale(o.Actor.Scale) * CourseMath.EulerXyz(o.Actor.Rotate) * Matrix4x4.CreateTranslation(o.Position);
+            var om = new CollisionMesh();
+            foreach (var w in paths)
+            {
+                var path = ShapePath(w);
+                if (!fs.Exists(path)) continue;
+                try { PhiveCollision.ReadShape(fs.Read(path), world, om); }
+                catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentOutOfRangeException or KeyNotFoundException)
+                {
+                    errors?.Add($"{path} ({o.Type}): {e.Message}");
+                }
+            }
+            if (om.TriangleCount == 0) continue;
+            var baked = om.Positions.Count(v => Near(snap, v));
+            if (baked >= bakedShare * om.Positions.Count) continue;
+            mesh.CurrentObject = mesh.Objects.Count;
+            mesh.Objects.Add(o.Type);
+            mesh.Append(om);
+            mesh.CurrentObject = -1;
+            added++;
+        }
+        return added;
+    }
+
+    private static (int, int, int) Key(Vector3 v) => ((int)MathF.Round(v.X * 4), (int)MathF.Round(v.Y * 4), (int)MathF.Round(v.Z * 4));
+
+    private static bool Near(HashSet<(int, int, int)> snap, Vector3 v)
+    {
+        var (x, y, z) = Key(v);
+        for (var dx = -1; dx <= 1; dx++)
+            for (var dy = -1; dy <= 1; dy++)
+                for (var dz = -1; dz <= 1; dz++)
+                    if (snap.Contains((x + dx, y + dy, z + dz))) return true;
+        return false;
     }
 
     private static void Add(GameFileSystem fs, List<CollisionSource> list, string path, bool compound, Matrix4x4 world, string label)
