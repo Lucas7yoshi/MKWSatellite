@@ -59,6 +59,27 @@ public static class CourseCollision
         return list;
     }
 
+    /// <summary>
+    /// The 250-unit cells of another world compound set covering the course (open-world courses only), e.g.
+    /// <c>World_Game03_Water</c> or <c>World_Game03_ModelWater</c>: <c>Phive/StaticCompoundBody/&lt;set&gt;/&lt;set&gt;_XXZZ_ij</c>.
+    /// </summary>
+    public static List<CollisionSource> WorldSetSourcesFor(GameFileSystem fs, CourseScene course, string set, float margin = 150)
+    {
+        var list = new List<CollisionSource>();
+        if (!course.StaticLayerSource.StartsWith("World_Game03", StringComparison.Ordinal)) return list;
+        var (min, max) = course.PathBounds;
+        var x0 = (int)MathF.Floor((min.X - margin) / Cell + 32); var x1 = (int)MathF.Floor((max.X + margin) / Cell + 32);
+        var z0 = (int)MathF.Floor((min.Z - margin) / Cell + 32); var z1 = (int)MathF.Floor((max.Z + margin) / Cell + 32);
+        for (var cx = Math.Max(0, x0); cx <= Math.Min(63, x1); cx++)
+            for (var cz = Math.Max(0, z0); cz <= Math.Min(63, z1); cz++)
+            {
+                int tx = cx / 4, tz = cz / 4, i = cx % 4, j = cz % 4;
+                Add(fs, list, $"Phive/StaticCompoundBody/{set}/{set}_{tx:00}{tz:00}_{i}{j}{Suffix}.bphsc.zs", true,
+                    Matrix4x4.Identity, $"{set} {tx:00}{tz:00}_{i}{j}");
+            }
+        return list;
+    }
+
     /// <summary>Phive shape path for a ShapeParam <c>PhshMeshPath</c> (<c>Work/Phive/Shape/Dcc/X.phsh</c>).</summary>
     public static string ShapePath(string work)
     {

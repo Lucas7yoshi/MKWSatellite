@@ -149,7 +149,9 @@ Checks in order (`st` = ground state at `kart+0x160`):
   `st+0x5C` bits 18/24 and the kart's water bit, and a second depth test sets bit 25 (0x7100204E10–0x7100204E70).
   The same slot's Material is compared with `MuddyWater` (26) and `Lava` (27), so it is a liquid probe. Which
   collision it hits (probably the `World_Game03_Water` compounds and Water-material shapes, not loaded yet) is
-  **unverified**; the viewer shows the `Water` material as the Water group as a stand-in. On the ground,
+  **unverified**; the viewer shows the `Water` material as the Water group as a stand-in. `mkwsat collision <course>
+  --water` reads the `World_Game03_Water` / `_ModelWater` cells around a course and lists their materials and the lap
+  nodes within 30 units of a liquid surface, to check this. On the ground,
   `Shallows` and `MuddyWater` go by their SubMaterial.
 - No other gameplay material is tested: `Slip`, `Dash`, `Gravity`, `Bumpy`, `Glide`... all go by SubMaterial. Glide
   speed (`TopSpeedGlide`) and `Acceleration` are read separately. Nothing in the block checks for being airborne, so

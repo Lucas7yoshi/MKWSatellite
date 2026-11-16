@@ -671,7 +671,8 @@ root.Subcommands.Add(terCmd);
 var colCourse = new Argument<string>("course") { Description = "Race scene name filter." };
 var colObj = new Option<string?>("--obj") { Description = "Write the collision mesh as OBJ (one group per material)." };
 var colObjects = new Option<bool>("--objects") { Description = "List placed objects with their own collision meshes and how much of each is already in the compounds." };
-var colCmd = new Command("collision", "Read a course's collision (Phive); list sources and materials, lap path height over it.") { colCourse, colObj, colObjects };
+var colWater = new Option<bool>("--water") { Description = "Read the World_Game03_Water / _ModelWater cells covering the course; list materials and lap nodes near a liquid surface." };
+var colCmd = new Command("collision", "Read a course's collision (Phive); list sources and materials, lap path height over it.") { colCourse, colObj, colObjects, colWater };
 colCmd.SetAction(parse =>
 {
     var fs = OpenFs(parse.GetValue(romfsOption));
@@ -693,6 +694,42 @@ colCmd.SetAction(parse =>
     var names = new MKWSatellite.Formats.Phive.PhiveNames(fs);
     foreach (var g in mesh.TriangleMaterial.GroupBy(m => m).OrderByDescending(g => g.Count()))
         Console.WriteLine($"  {g.Count(),8} tris  {(g.Key < 0 ? "(none)" : names.Describe(mesh.Materials[g.Key]))}");
+
+    if (parse.GetValue(colWater))
+    {
+        // Liquid collision sets: what they hold, and which lap nodes sit below a liquid surface (vertical ray up/down).
+        foreach (var set in new[] { "World_Game03_Water", "World_Game03_ModelWater" })
+        {
+            var ws = MKWSatellite.Formats.Phive.CourseCollision.WorldSetSourcesFor(fs, course, set);
+            var wm = MKWSatellite.Formats.Phive.CourseCollision.Load(fs, ws, errors);
+            Console.WriteLine($"{set}: {ws.Count} cells, {wm.TriangleCount} triangles; skipped: {string.Join(", ", wm.Skipped.Select(kv => $"{kv.Value} x {kv.Key}"))}");
+            foreach (var g in wm.TriangleMaterial.GroupBy(m => m).OrderByDescending(g => g.Count()))
+                Console.WriteLine($"  {g.Count(),8} tris  {(g.Key < 0 ? "(none)" : names.Describe(wm.Materials[g.Key]))}");
+            if (wm.TriangleCount == 0) continue;
+            var WP = wm.Positions;
+            var depths = new List<(int Node, float Depth, string Mat)>();
+            for (var n = 0; n < course.LapPoints.Count; n++)
+            {
+                var o = course.LapPoints[n].Position;
+                float best = float.MaxValue; var bm = -1;
+                for (var t = 0; t < wm.TriangleCount; t++)
+                {
+                    System.Numerics.Vector3 a = WP[3 * t], b = WP[3 * t + 1], c = WP[3 * t + 2];
+                    var d = (b.Z - c.Z) * (a.X - c.X) + (c.X - b.X) * (a.Z - c.Z);
+                    if (MathF.Abs(d) < 1e-9f) continue;
+                    var w0 = ((b.Z - c.Z) * (o.X - c.X) + (c.X - b.X) * (o.Z - c.Z)) / d;
+                    var w1 = ((c.Z - a.Z) * (o.X - c.X) + (a.X - c.X) * (o.Z - c.Z)) / d;
+                    if (w0 < 0 || w1 < 0 || w0 + w1 > 1) continue;
+                    var y = w0 * a.Y + w1 * b.Y + (1 - w0 - w1) * c.Y;
+                    var depth = o.Y - y; // negative: node below the surface
+                    if (MathF.Abs(depth) < MathF.Abs(best)) { best = depth; bm = wm.TriangleMaterial[t]; }
+                }
+                if (bm >= 0 && MathF.Abs(best) < 30) depths.Add((n, best, names.Describe(wm.Materials[bm])));
+            }
+            Console.WriteLine($"  lap nodes within 30 units of a {set} surface: {depths.Count}/{course.LapPoints.Count}");
+            foreach (var (n, dd, m) in depths.Take(25)) Console.WriteLine($"    node {n,3}: {dd,7:0.00} vs surface  {m}");
+        }
+    }
 
     if (parse.GetValue(colObjects))
     {
