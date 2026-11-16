@@ -57,8 +57,21 @@ public sealed class ViewLayers
     public string CollisionHighlight = "Rescue";
     /// <summary>Draw the 2D markers for objects that are shown as models.</summary>
     public bool MarkersOnModels = true;
+    /// <summary>
+    /// Lakitu respawn boost: route points with <c>IsRecoverDash</c>, and the route stretches whose respawn search
+    /// (<c>RecoverType</c>) lands on one (<see cref="RecoverRules"/>). Drawn even when AI routes are hidden.
+    /// </summary>
+    public bool RecoverDash = true;
     /// <summary>Multiplier for line widths and marker sizes.</summary>
     public float LineScale = 1f;
+    /// <summary>Multiplier for the text drawn in the view (checkpoint numbers), separate from the panels' text.</summary>
+    public float LabelScale = 1f;
+    /// <summary>
+    /// Show the lap path, gates, progress zones and labels only for checkpoint sections <see cref="WindowBefore"/> before
+    /// to <see cref="WindowAfter"/> after <see cref="WindowCentre"/> (see <see cref="LapSections"/>).
+    /// </summary>
+    public bool CheckpointWindow = false;
+    public int WindowCentre = 0, WindowBefore = 1, WindowAfter = 1;
 }
 
 /// <summary>
@@ -83,6 +96,42 @@ public sealed class CourseView(PrimitiveBatch batch)
     private float _minY, _maxY;
     private readonly List<(Pickable Item, float RadiusPx)> _pickables = [];
     private readonly Dictionary<CourseRail, List<(int Segment, float From, float To)>> _lookAhead = new(ReferenceEqualityComparer.Instance);
+    private (CourseScene Course, LapSections Sections, Dictionary<BancRailPoint, LapPoint> ByPoint)? _sections;
+    private (CourseScene Course, RecoverRules Rules)? _recover;
+
+    /// <summary>The course's Lakitu respawn model (computed once per course instance).</summary>
+    public RecoverRules? Recover
+    {
+        get
+        {
+            if (Course is null) return null;
+            if (_recover is not { } r || !ReferenceEquals(r.Course, Course)) _recover = r = (Course, new RecoverRules(Course));
+            return r.Rules;
+        }
+    }
+
+    /// <summary>The course's checkpoint sections (computed once per course instance).</summary>
+    public LapSections? Sections => Course is null ? null : SectionData().Sections;
+
+    private (CourseScene Course, LapSections Sections, Dictionary<BancRailPoint, LapPoint> ByPoint) SectionData()
+    {
+        if (_sections is { } s && ReferenceEquals(s.Course, Course)) return s;
+        var byPoint = new Dictionary<BancRailPoint, LapPoint>(ReferenceEqualityComparer.Instance);
+        foreach (var lp in Course!.LapPoints) byPoint[lp.Point] = lp;
+        _sections = (Course, new LapSections(Course), byPoint);
+        return _sections.Value;
+    }
+
+    /// <summary>Whether a lap node passes the checkpoint window (always true when the window is off).</summary>
+    public bool LapShown(LapPoint p)
+    {
+        if (!Layers.CheckpointWindow || Course is null) return true;
+        var d = SectionData();
+        return d.Sections.Of(p) is not { } s || d.Sections.InWindow(s, Layers.WindowCentre, Layers.WindowBefore, Layers.WindowAfter);
+    }
+
+    private bool LapShown(BancRailPoint p) =>
+        !Layers.CheckpointWindow || !SectionData().ByPoint.TryGetValue(p, out var lp) || LapShown(lp);
 
     // Camera used for the current build.
     private IViewCamera _cam = null!;
@@ -296,9 +345,11 @@ public sealed class CourseView(PrimitiveBatch batch)
                 Line(a, b, px, col);
                 if (isRoute && Vector3.Distance(a, b) > 30 * Upp((a + b) / 2)) Chevron(a, b, col); // direction of travel
             }
-            for (var i = 1; i < pts.Count; i++) Seg(pts[i - 1].Translation, pts[i].Translation);
-            if (r.Rail.IsClosed && pts.Count > 2) Seg(pts[^1].Translation, pts[0].Translation);
-            foreach (var p in pts)
+            // With the checkpoint window on, a lap segment is drawn when the node it starts from is shown.
+            for (var i = 1; i < pts.Count; i++)
+                if (!isLap || LapShown(pts[i - 1])) Seg(pts[i - 1].Translation, pts[i].Translation);
+            if (r.Rail.IsClosed && pts.Count > 2 && (!isLap || LapShown(pts[^1]))) Seg(pts[^1].Translation, pts[0].Translation);
+            foreach (var p in pts.Where(p => !isLap || LapShown(p)))
                 foreach (var dst in p.LinkTargets)
                     if (c.PointsByHash.TryGetValue(dst, out var q))
                         Seg(p.Translation, q.Translation);
@@ -311,6 +362,26 @@ public sealed class CourseView(PrimitiveBatch batch)
                     else if (Layers.Nodes)
                         Dot(pts[i].Translation, 2.5f, isRoute ? routeColor : kindColor);
                 }
+        }
+
+        // 2a. Lakitu respawn boost: stretches after route points whose respawn lands on an IsRecoverDash point, then the
+        // points themselves. Kept clickable when AI routes are hidden.
+        if (Layers.RecoverDash && Recover is { } rec)
+        {
+            foreach (var r in c.Rails.Where(r => r.Kind == RailKinds.Route && LayerOn(r.Layer)))
+                for (var i = 0; i < r.Rail.Points.Count; i++)
+                {
+                    var n = new RecoverRules.Node(r, i);
+                    if (!rec.Landing(n).IsRecoverDash) continue;
+                    foreach (var next in rec.Next(n)) Line(n.Point.Translation, next.Point.Translation, 16, Palette.RecoverDashZone);
+                    if (!Layers.AiRoutes) _pickables.Add((new PickedRailPoint(r, i), 4));
+                }
+            foreach (var d in rec.DashPoints.Where(d => LayerOn(d.Rail.Layer)))
+            {
+                Dot(d.Point.Translation, 9f, 0xFF000000);
+                Dot(d.Point.Translation, 7f, Palette.RecoverDash);
+                if (!Layers.AiRoutes) _pickables.Add((new PickedRailPoint(d.Rail, d.Index), 6));
+            }
         }
 
         // 2b. Progress zones: the game places you on segment a->b when you are between the two gate planes and inside
@@ -337,12 +408,13 @@ public sealed class CourseView(PrimitiveBatch batch)
                     Line(ga[2], gb[2], 1f, edge);
                 }
             }
-            foreach (var (a, b) in LapZone.Segments(c)) Zone(a, b);
+            foreach (var (a, b) in LapZone.Segments(c))
+                if (LapShown(a)) Zone(a, b);
         }
 
         // 3. Lap gates: a line between the bottom corners top-down, the full upright rectangle in 3D.
         if (Layers.LapPath)
-            foreach (var lp in c.LapPoints)
+            foreach (var lp in c.LapPoints.Where(LapShown))
             {
                 var isCp = lp.CheckPoint is not null || lp.IsStart || lp.IsGoal || lp.IsLapCheck;
                 _pickables.Add((new PickedLapPoint(lp), 6));
@@ -744,7 +816,9 @@ public sealed class CourseView(PrimitiveBatch batch)
     public void DrawLabels(IViewCamera camera, ImDrawListPtr dl)
     {
         if (Course is null || !Layers.LapPath || !Layers.CheckpointLabels) return;
-        foreach (var lp in Course.LapPoints)
+        var font = ImGui.GetFont();
+        var size = ImGui.GetFontSize() * Layers.LabelScale;
+        foreach (var lp in Course.LapPoints.Where(LapShown))
         {
             string? text = lp.IsStart ? "START" : lp.IsGoal ? "GOAL" : lp.CheckPoint is { } cp ? cp.ToString("0") : null;
             if (lp.IsLapCheck) text = (text is null ? "" : text + " ") + "LAP";
@@ -753,9 +827,9 @@ public sealed class CourseView(PrimitiveBatch batch)
             var g = lp.GateCorners();
             var anchor = camera is OrbitCamera ? (g[2] + g[3]) / 2 : lp.Position;
             if (camera.Project(anchor) is not { } screen) continue;
-            var s = screen + new Vector2(6, -16);
-            dl.AddText(s + new Vector2(1, 1), 0xFF000000, text);
-            dl.AddText(s, 0xFFFFFFFF, text);
+            var s = screen + new Vector2(6, -size - 2);
+            dl.AddText(font, size, s + new Vector2(1, 1), 0xFF000000, text);
+            dl.AddText(font, size, s, 0xFFFFFFFF, text);
         }
     }
 }

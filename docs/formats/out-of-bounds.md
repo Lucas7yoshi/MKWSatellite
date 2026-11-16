@@ -111,9 +111,37 @@ object's reference height (2.5 for MuddyWater), and Lava when an owner flag is s
 The `path_id` sent with `JugemRecover` is the chosen point's path. How `SystemObj_PrioRecoverPoint` (144 placed in 30
 scenes), `SystemObj_RespawnArea_00` and the respawn points fill the per-point recover lists is **unverified**.
 
-Course data that looks related (from `mkwsat scan`, meanings **unverified**):
+Course data that looks related (from `mkwsat scan`, meaning **unverified**):
 - `LapPathGraph` points: `Dynamic.IsJugemLeft` (342 points): which side Lakitu comes from.
-- `RoutePathGraph` points: `Dynamic.RecoverType` (1–5, 79,762 points) and `Dynamic.IsRecoverDash` (100).
+
+### RecoverType and IsRecoverDash (traced)
+
+`RoutePoint_ParseDynamicParams` (`0x7100AD45F0`) reads the AI route point's `Dynamic`: `RecoverType` (hash
+`0xCAB1B12D`) into +932 and a working copy at +936 (default 0), and `IsRecoverDash` (`0x1D2B825D`) as bit `0x8000` of
+the flag word at +944.
+
+`Rescue_FindRecoverPointOnPath` (`0x7100D01670`), when the last valid lap node has no recover-point list of its own,
+picks the route point **nearest the player** among the route points linked to that lap node (skipping some flagged
+ones), then repeats up to 100 times on the current point's `RecoverType`:
+
+| RecoverType | Effect |
+|---|---|
+| 0 (default), 5 | respawn at this route point |
+| 1 | move to a previous route point (with several, the one scoring lowest in `sub_71005B8D60`, a lap-graph distance check; to a next one if there is none) and repeat |
+| 2 | move to a next route point and repeat |
+| 3 | re-pick the route point nearest the player among those linked to the current lap node (usually the same point; the walk then ends on the starting point) |
+| 4 | ask a recover override (`sub_710298C340`), then stop |
+
+When the steps run out it falls back to the starting point. The pose comes from the final point (interpolated 0.8
+towards its next point when it has both neighbours), and the function's `bool*` result is set to that point's
+**`IsRecoverDash`** bit. That this result is what gives the boost on landing is **unverified**: the callers seen
+(`Rescue_CalcRecoverPose`, `RaceSeq_StartJugemRecoverAtCurrent`) pass it through or ignore it, and the consumer was not
+found yet.
+
+In 1.8 only 8 race scenes have `IsRecoverDash` points (1–3 each; Crown City C/D 3, Sky-High Sundae A 2). The viewer's
+"Lakitu respawn boost" layer (`RecoverRules`) draws them and the route stretches whose walk ends on one. It treats 3
+and 4 as "stay" and takes the first neighbour, so it is **approximate**. Counts per race (route points by
+`RecoverType`) from a census: most are 0 or 3; 1 and 2 are a few dozen per course.
 
 Lakitu's own parameters (`CmnObj_Jugem001_A_00`, `game__GameParam_Jugem`) have move sets for **Lift** (rescue),
 **Reverse** (wrong way), **Lap**, **Start**, **Goal**, **Dropout** and Default. Only the names come from data.

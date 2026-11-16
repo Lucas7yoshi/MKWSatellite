@@ -29,12 +29,32 @@ public sealed partial class CourseLoader(GameFileSystem fs)
         return new CourseObject(a, layer, CourseObjectClassifier.Classify(a.Type, info), info);
     }
 
-    /// <summary>Race scene file names (in <c>Banc/</c>), e.g. <c>Race_Cinema_A_00[Game03].bcett.byml.zs</c>.</summary>
-    /// <summary>Race scenes, then the Intermission (<c>InterStage_*</c>) and Rally (<c>LongRally_*</c>) connecting routes.</summary>
+    /// <summary>
+    /// Viewable scene file names (in <c>Banc/</c>), e.g. <c>Race_Cinema_A_00[Game03].bcett.byml.zs</c>: race scenes, the
+    /// Intermission (<c>InterStage_*</c>) and Rally (<c>LongRally_*</c>) connecting routes, battle stages and missions.
+    /// </summary>
     public IReadOnlyList<string> ListRaceScenes() =>
-        [.. fs.ListFiles(BancScene.RomfsDirectory, "Race_*.bcett.byml.zs"),
-         .. fs.ListFiles(BancScene.RomfsDirectory, "InterStage*.bcett.byml.zs"),
-         .. fs.ListFiles(BancScene.RomfsDirectory, "LongRally*.bcett.byml.zs")];
+        [.. SceneKinds.SelectMany(k => fs.ListFiles(BancScene.RomfsDirectory, k.Pattern))];
+
+    /// <summary>Scene groups in list order, with the file pattern each one matches.</summary>
+    public static readonly (SceneKind Kind, string Pattern)[] SceneKinds =
+    [
+        (SceneKind.Race, "Race_*.bcett.byml.zs"),
+        (SceneKind.Intermission, "InterStage*.bcett.byml.zs"),
+        (SceneKind.Rally, "LongRally*.bcett.byml.zs"),
+        (SceneKind.Battle, "BalloonBattle_*.bcett.byml.zs"),
+        (SceneKind.Battle, "CoinBattle_*.bcett.byml.zs"),
+        (SceneKind.Battle, "BombBattle_*.bcett.byml.zs"),
+        (SceneKind.Mission, "Mission_*.bcett.byml.zs"),
+    ];
+
+    public static SceneKind KindOf(string file) =>
+        file.StartsWith("Race_", StringComparison.Ordinal) ? SceneKind.Race
+        : file.StartsWith("InterStage", StringComparison.Ordinal) ? SceneKind.Intermission
+        : file.StartsWith("LongRally", StringComparison.Ordinal) ? SceneKind.Rally
+        : file.StartsWith("Mission_", StringComparison.Ordinal) ? SceneKind.Mission
+        : file.Contains("Battle_", StringComparison.Ordinal) ? SceneKind.Battle
+        : SceneKind.Other;
 
     /// <summary>"Race_Cinema_A_00[Game03].bcett.byml.zs" -> "Cinema".</summary>
     public static string CourseNameOf(string raceFile) => CourseNameRegex().Match(raceFile) is { Success: true } m ? m.Groups[1].Value : raceFile;
@@ -156,3 +176,6 @@ public sealed partial class CourseLoader(GameFileSystem fs)
         return _worldTiles = tiles.ToList();
     }
 }
+
+/// <summary>Which list a scene belongs to in the viewer.</summary>
+public enum SceneKind { Race, Intermission, Rally, Battle, Mission, Other }

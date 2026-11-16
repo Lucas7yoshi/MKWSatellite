@@ -16,6 +16,7 @@ Working notes kept alongside the code: what's done, why things are the way they 
 | [formats/rails.md](formats/rails.md) | Rail kinds: grind rails (types, flags, catch boxes), object paths, glide and other paths |
 | [formats/collision.md](formats/collision.md) | Phive/Havok collision: tagfile reflection, mesh/compound shapes, materials, which files make up a course |
 | [formats/out-of-bounds.md](formats/out-of-bounds.md) | Lakitu rescue: triggers (Rescue/Valley material, WorldEndArea, ForbidReverse, stuck watchdog), respawn point choice, OOB data per course |
+| [formats/messages.md](formats/messages.md) | MSBT messages and in-game names for races, routes, battle stages and missions |
 | [formats/terrain.md](formats/terrain.md) | Open-world terrain: TSCB quadtree, TARB height/material/colour/water maps, how the viewer streams it |
 
 Conventions:

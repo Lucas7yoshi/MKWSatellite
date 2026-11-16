@@ -51,7 +51,7 @@ public sealed partial class SatelliteApp
             if (ImGui.IsItemHovered()) ImGui.SetTooltip("Remove");
             if (rows[i].Length > 0 && SatelliteSettings.CheckRomfs(rows[i]) is { } problem)
             {
-                ImGui.TextColored(new Vector4(1, 0.6f, 0.3f, 1), $"  {problem}");
+                Colored(new Vector4(1, 0.6f, 0.3f, 1), $"  {problem}");
                 var sub = Path.Combine(rows[i], "romfs");
                 if (Directory.Exists(sub)) { ImGui.SameLine(); if (ImGui.SmallButton("use it")) rows[i] = sub; }
             }
@@ -79,14 +79,14 @@ public sealed partial class SatelliteApp
         if (_settings.FilePath is null && _settings.IsConfigured)
             ImGui.TextWrapped($"Currently from the {_settings.Source}, which takes priority over the saved file on later starts.");
         if (_settingsMessage is not null)
-            ImGui.TextColored(_settingsFailed ? new Vector4(1, 0.4f, 0.4f, 1) : new Vector4(0.5f, 1, 0.6f, 1), _settingsMessage);
+            Colored(_settingsFailed ? new Vector4(1, 0.4f, 0.4f, 1) : new Vector4(0.5f, 1, 0.6f, 1), _settingsMessage);
         ImGui.Separator();
     }
 
     private static void Hint(string text)
     {
         ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetStyle().Colors[(int)ImGuiCol.TextDisabled]);
-        ImGui.TextWrapped(text);
+        Wrapped(text);
         ImGui.PopStyleColor();
     }
 

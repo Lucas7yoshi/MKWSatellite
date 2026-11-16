@@ -26,6 +26,7 @@ bounds really are.
 - Rescue (Lakitu) and valley areas at their real collision-box size, recovery (respawn) points, high-speed, rule
   (no reverse, no jump...), invisible dash/glide and link areas.
 - Bullet Bill zones, including where a Bullet Bill can't end.
+- Where a Lakitu respawn gives the boost (`IsRecoverDash` route points and the stretches that respawn onto them).
 - Collision from the game's Phive data, coloured by surface material or by type, with the rescue/valley volumes and
   surfaces highlighted.
 
@@ -36,7 +37,11 @@ bounds really are.
 
 **Viewer**
 - Top-down, 3D orbit and first-person cameras.
-- Click anything for its details in the inspector; distance ruler in top-down.
+- Races, Intermission and Rally routes, battle stages and missions, listed by their in-game names (from the game's
+  own messages) or by file name.
+- Click anything for its details in the inspector (click a value to copy it); distance ruler in top-down.
+- Show only a few checkpoints around one, for courses that pass over themselves.
+- Side panels can be resized (drag the inner edge) and hidden.
 - Layer toggles for every category, and per scene layer (race scene, world, course `_Fix` layer).
 - Headless screenshots, including top-down renders larger than the screen (e.g. 4K maps of every course).
 - Set up the game folder from the viewer itself (**Game data**).

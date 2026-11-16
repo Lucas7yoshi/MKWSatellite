@@ -119,10 +119,10 @@ public sealed partial class SatelliteApp
     {
         if (EditTarget(_view.Selected) is not { } t)
         {
-            if (_view.Selected is not null) ImGui.TextDisabled("Read-only (only the race scene layer is editable).");
+            if (_view.Selected is not null) Hint("Read-only (only the race scene layer is editable).");
             return false;
         }
-        ImGui.TextDisabled("Ctrl+drag in the view to move; Ctrl+Z / Ctrl+Y undo/redo.");
+        Hint("Ctrl+drag in the view to move; Ctrl+Z / Ctrl+Y undo/redo.");
         ImGui.PushItemWidth(-ImGui.CalcTextSize("Rotate (deg)").X - 12 * _uiScale);
         EditVec(t.Raw, t.PosKey, "Position", Vector3.Zero, 1f, 1f);
         EditVec(t.Raw, "Rotate", "Rotate (deg)", Vector3.Zero, 1f, 180f / MathF.PI);
@@ -167,7 +167,7 @@ public sealed partial class SatelliteApp
                         if (ImGui.InputText(key, ref s, 256, ImGuiInputTextFlags.EnterReturnsTrue)) { _history.Set(dyn, key, s); _history.Seal(); AfterEdit(); }
                         break;
                     default:
-                        ImGui.TextDisabled($"{key}: {dyn[key]}");
+                        Hint($"{key}: {dyn[key]}");
                         break;
                 }
                 if (ImGui.IsItemDeactivatedAfterEdit()) _history.Seal();
@@ -199,7 +199,7 @@ public sealed partial class SatelliteApp
     private void DrawEditPanel()
     {
         if (_view.Course is null) return;
-        ImGui.TextDisabled("Editing (race scene)");
+        Hint("Editing (race scene)");
         ImGui.BeginDisabled(!_history.CanUndo);
         if (ImGui.Button("Undo")) { _history.Undo(); AfterEdit(); }
         ImGui.EndDisabled();
@@ -214,7 +214,7 @@ public sealed partial class SatelliteApp
         if (ImGui.Button("Revert") && _courseFile is { } f) LoadCourse(f, force: true);
         ImGui.EndDisabled();
         ImGui.SameLine();
-        ImGui.TextColored(_history.IsDirty ? new Vector4(1, 0.8f, 0.3f, 1) : new Vector4(0.6f, 0.6f, 0.6f, 1),
+        Colored(_history.IsDirty ? new Vector4(1, 0.8f, 0.3f, 1) : new Vector4(0.6f, 0.6f, 0.6f, 1),
             _history.IsDirty ? "unsaved" : "saved");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputText("##modout", ref _modOutput, 512);
@@ -222,7 +222,7 @@ public sealed partial class SatelliteApp
             ImGui.SetTooltip("Mod romfs folder to save into (as <folder>/Banc/<scene>). Add it as the last \"romfs\" entry " +
                              "in mkwsat.local.json to load your edits back. Never the game dump.");
         if (_saveMessage is not null)
-            ImGui.TextColored(_saveFailed ? new Vector4(1, 0.4f, 0.4f, 1) : new Vector4(0.5f, 1, 0.6f, 1), _saveMessage);
+            Colored(_saveFailed ? new Vector4(1, 0.4f, 0.4f, 1) : new Vector4(0.5f, 1, 0.6f, 1), _saveMessage);
         ImGui.Separator();
     }
 

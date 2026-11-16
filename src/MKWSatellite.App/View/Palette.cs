@@ -68,6 +68,10 @@ public static class Palette
     /// <summary>World grid: 250-unit cell edges and 1000-unit tile edges.</summary>
     public static readonly uint GridCell = Rgb(255, 255, 255, 0x70);
     public static readonly uint GridTile = Rgb(255, 120, 220, 0xD0);
+    /// <summary>Route point with <c>IsRecoverDash</c> (Lakitu respawn boost), and the route stretches that respawn there.</summary>
+    public static readonly uint RecoverDash = Rgb(80, 230, 255);
+    public static readonly uint RecoverDashZone = Rgb(80, 230, 255, 0x70);
+
     /// <summary>Route point with <c>IsKillerReleasable</c>.</summary>
     public static readonly uint BulletReleasable = Rgb(90, 255, 120);
     public static readonly uint Hover = Rgb(255, 255, 255, 0xC0);

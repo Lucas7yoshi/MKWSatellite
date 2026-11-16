@@ -8,6 +8,7 @@ using MKWSatellite.Formats.Course;
 using MKWSatellite.Formats.IO;
 using MKWSatellite.Formats.Phive;
 using MKWSatellite.Formats.Imaging;
+using MKWSatellite.Formats.Text;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ImGui;
@@ -22,10 +23,7 @@ namespace MKWSatellite.App;
 /// </summary>
 public sealed partial class SatelliteApp : IDisposable
 {
-    private const float BaseLeftPanelWidth = 330, BaseRightPanelWidth = 380;
-    private float _uiScale = 1, _textScale = 1;
-    private float LeftPanelWidth => _options.NoUi ? 0 : BaseLeftPanelWidth * _uiScale * _textScale;
-    private float RightPanelWidth => _options.NoUi ? 0 : BaseRightPanelWidth * _uiScale * _textScale;
+    private float _uiScale = 1;
 
     private readonly IWindow _window;
     private readonly AppOptions _options;
@@ -60,6 +58,8 @@ public sealed partial class SatelliteApp : IDisposable
     private string? _fsError, _courseError;
     private int? _resourceVersion;
     private IReadOnlyList<string> _raceFiles = [];
+    private CourseNames? _names;
+    private bool _inGameNames = true;
     private string _filter = "";
     private string? _courseFile;
 
@@ -121,9 +121,10 @@ public sealed partial class SatelliteApp : IDisposable
         {
             var f = typeof(ViewLayers).GetField(field);
             if (f?.FieldType == typeof(bool)) f.SetValue(_view.Layers, value is "1" or "true" or "on");
+            else if (f?.FieldType == typeof(int)) f.SetValue(_view.Layers, int.Parse(value));
             else if (f?.FieldType == typeof(float)) f.SetValue(_view.Layers, float.Parse(value, System.Globalization.CultureInfo.InvariantCulture));
             else if (f?.FieldType == typeof(string)) f.SetValue(_view.Layers, value);
-            else Console.Error.WriteLine($"--layer: no bool/float/string layer named {field}");
+            else Console.Error.WriteLine($"--layer: no bool/int/float/string layer named {field}");
         }
         UpdateViewportRect();
         if (_options.Course is { } c)
@@ -186,8 +187,9 @@ public sealed partial class SatelliteApp : IDisposable
         ImGuiClipboard.Install(_input);
         ImGui.GetStyle().WindowRounding = 0;
         ImGui.GetStyle().ScaleAllSizes(scale);
+        ScalePanels(_uiScale, scale);
         _uiScale = scale;
-        ApplyTextScale();
+        ImGui.GetIO().FontGlobalScale = _builtInFont ? _uiScale : 1;
         _view.Layers.LineScale = lineMultiplier * scale;
         _view.Invalidate();
     }
@@ -214,8 +216,6 @@ public sealed partial class SatelliteApp : IDisposable
         cfg.Destroy();
     }
 
-    private void ApplyTextScale() => ImGui.GetIO().FontGlobalScale = _textScale * (_builtInFont ? _uiScale : 1);
-
     /// <summary>Opens the game data the settings point at, with the model/terrain/collision renderers that read it.</summary>
     private void OpenGame(SatelliteSettings settings)
     {
@@ -228,6 +228,8 @@ public sealed partial class SatelliteApp : IDisposable
             _resourceVersion = _fs.GetResourceVersion();
             _loader = new CourseLoader(_fs);
             _raceFiles = _loader.ListRaceScenes();
+            try { _names = CourseNames.Load(_fs); }
+            catch (Exception e) when (e is InvalidDataException or KeyNotFoundException or ArgumentException) { _names = null; }
         }
         catch (Exception e)
         {
@@ -570,8 +572,9 @@ public sealed partial class SatelliteApp : IDisposable
 
         if (!_options.NoUi)
         {
-            DrawLeftPanel();
-            DrawInspector();
+            if (!_leftHidden) DrawLeftPanel();
+            if (!_rightHidden) DrawInspector();
+            DrawPanelChrome();
         }
         DrawDiscardPopup();
 
@@ -881,26 +884,18 @@ public sealed partial class SatelliteApp : IDisposable
         var h = _window.FramebufferSize.Y;
         ImGui.SetNextWindowPos(Vector2.Zero);
         ImGui.SetNextWindowSize(new Vector2(LeftPanelWidth, h));
-        ImGui.Begin("Courses", ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse);
-        if (_fsError is not null) ImGui.TextColored(new Vector4(1, 0.4f, 0.4f, 1), _fsError);
+        ImGui.Begin("Courses", PanelFlags);
+        if (HideButton("<<", "Hide this panel (drag its right edge to resize)")) _leftHidden = true;
+        if (_fsError is not null) Colored(new Vector4(1, 0.4f, 0.4f, 1), _fsError);
         DrawSettings();
         if (_fs is null)
         {
             ImGui.End();
             return;
         }
-        ImGui.TextDisabled($"romfs layers: {_fs.Layers.Count}   Product.{_resourceVersion}");
-        if (_courseError is not null) ImGui.TextColored(new Vector4(1, 0.4f, 0.4f, 1), _courseError);
-
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##filter", "filter", ref _filter, 64);
-        ImGui.BeginChild("races", new Vector2(0, h * 0.36f), ImGuiChildFlags.Border);
-        foreach (var f in _raceFiles)
-        {
-            if (_filter.Length > 0 && !f.Contains(_filter, StringComparison.OrdinalIgnoreCase)) continue;
-            if (ImGui.Selectable(f.Replace(".bcett.byml.zs", ""), f == _courseFile)) LoadCourse(f);
-        }
-        ImGui.EndChild();
+        Hint($"romfs layers: {_fs.Layers.Count}   Product.{_resourceVersion}");
+        if (_courseError is not null) Colored(new Vector4(1, 0.4f, 0.4f, 1), _courseError);
+        DrawSceneList(h);
 
         if (ImGui.RadioButton("Top-down", !_use3D)) SetViewMode(false, false);
         ImGui.SameLine();
@@ -913,6 +908,65 @@ public sealed partial class SatelliteApp : IDisposable
         DrawLayerToggles();
         ImGui.End();
     }
+
+    private static readonly (SceneKind Kind, string Label)[] SceneGroups =
+    [
+        (SceneKind.Race, "Races"), (SceneKind.Intermission, "Intermission"), (SceneKind.Rally, "Rally"),
+        (SceneKind.Battle, "Battle"), (SceneKind.Mission, "Missions"),
+    ];
+    private readonly HashSet<SceneKind> _hiddenKinds = [];
+
+    /// <summary>The scene list: a filter box, a toggle per kind of scene, and a collapsible group per kind.</summary>
+    private void DrawSceneList(float h)
+    {
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputTextWithHint("##filter", "filter (name or file)", ref _filter, 64);
+        if (_names is not null)
+        {
+            ImGui.Checkbox("In-game names", ref _inGameNames);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("English names from the game's messages (Mals/USen). Races with several layouts show the\n" +
+                                 "layout letter for the ones without a name of their own; hover a scene for its file name.");
+        }
+        // Toggles flow onto the next line when the panel is narrow.
+        var right = ImGui.GetWindowContentRegionMax().X;
+        for (var i = 0; i < SceneGroups.Length; i++)
+        {
+            var (kind, label) = SceneGroups[i];
+            var on = !_hiddenKinds.Contains(kind);
+            if (ImGui.Checkbox(label, ref on)) { if (on) _hiddenKinds.Remove(kind); else _hiddenKinds.Add(kind); }
+            if (i + 1 < SceneGroups.Length)
+            {
+                var next = ImGui.GetFrameHeight() + ImGui.GetStyle().ItemInnerSpacing.X + ImGui.CalcTextSize(SceneGroups[i + 1].Label).X;
+                if (ImGui.GetItemRectMax().X - ImGui.GetWindowPos().X + ImGui.GetStyle().ItemSpacing.X + next < right) ImGui.SameLine();
+            }
+        }
+        ImGui.BeginChild("races", new Vector2(0, h * 0.36f), ImGuiChildFlags.Border | ImGuiChildFlags.ResizeY, ImGuiWindowFlags.HorizontalScrollbar);
+        foreach (var (kind, label) in SceneGroups)
+        {
+            if (_hiddenKinds.Contains(kind)) continue;
+            var files = _raceFiles.Where(f => CourseLoader.KindOf(f) == kind && MatchesFilter(f)).OrderBy(SceneLabel, StringComparer.OrdinalIgnoreCase).ToList();
+            if (files.Count == 0) continue;
+            if (_filter.Length > 0) ImGui.SetNextItemOpen(true);
+            else ImGui.SetNextItemOpen(kind == SceneKind.Race, ImGuiCond.Once);
+            if (!ImGui.TreeNodeEx($"{label} ({files.Count})###grp{kind}", ImGuiTreeNodeFlags.SpanAvailWidth)) continue;
+            foreach (var f in files)
+            {
+                if (ImGui.Selectable(SceneLabel(f), f == _courseFile)) LoadCourse(f);
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(SceneFile(f));
+            }
+            ImGui.TreePop();
+        }
+        ImGui.EndChild();
+    }
+
+    private bool MatchesFilter(string f) =>
+        _filter.Length == 0 || f.Contains(_filter, StringComparison.OrdinalIgnoreCase) || SceneLabel(f).Contains(_filter, StringComparison.OrdinalIgnoreCase);
+
+    private static string SceneFile(string f) => f.Replace(".bcett.byml.zs", "");
+
+    /// <summary>The name shown in the scene list.</summary>
+    private string SceneLabel(string f) => _inGameNames && _names?.Of(f) is { } n ? n : SceneFile(f);
 
     private void DrawLayerToggles()
     {
@@ -941,19 +995,21 @@ public sealed partial class SatelliteApp : IDisposable
         ImGui.SetNextItemWidth(120 * _uiScale);
         if (ImGui.SliderFloat("Line / marker size", ref L.LineScale, 0.5f, 4f, "%.1fx")) changed = true;
         ImGui.SetNextItemWidth(120 * _uiScale);
-        if (ImGui.SliderFloat("Text size", ref _textScale, 0.6f, 2f, "%.1fx")) ApplyTextScale();
-        ImGui.TextDisabled("Paths");
+        ImGui.SliderFloat("Label size", ref L.LabelScale, 0.6f, 3f, "%.1fx");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Size of the checkpoint numbers in the view (the panels follow the Windows display scale).");
+        Hint("Paths");
         Toggle("Lap path (coloured by height)", ref L.LapPath, Palette.Height(0.5f, 0, 1));
         Toggle("Checkpoint gates", ref L.CheckpointGates, Palette.CheckpointGate);
         Toggle("All lap gates", ref L.AllGates, Palette.Gate);
         Toggle("Checkpoint labels", ref L.CheckpointLabels);
+        DrawCheckpointWindow(ref changed);
         Toggle("AI routes", ref L.AiRoutes, Palette.RouteNormal);
         if (L.AiRoutes)
         {
             void Legend(uint c, string t)
             {
                 ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine();
-                ImGui.TextColored(Palette.ToVector(c), t);
+                Colored(Palette.ToVector(c), t);
             }
             Legend(Palette.RoutePreferred, "RoutePriority > 0");
             Legend(Palette.RouteNormal, "default route");
@@ -968,13 +1024,19 @@ public sealed partial class SatelliteApp : IDisposable
                 Legend(Palette.BulletReleasable, "IsKillerReleasable point");
             }
         }
+        Toggle("Lakitu respawn boost (IsRecoverDash)", ref L.RecoverDash, Palette.RecoverDash);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Cyan dots: AI route points with IsRecoverDash. Cyan stretches: route points whose respawn search\n" +
+                             "(RecoverType: 1 = step back, 2 = step forward, else stay) ends on one, so a Lakitu respawn that\n" +
+                             "starts there lands on it. The game starts from the route point nearest you.\n" +
+                             "Traced in code; that the flag gives the boost is unverified (the result's use wasn't traced).");
         Toggle("Grind rails", ref L.GrindRails, Palette.GrindPlaced);
         if (L.GrindRails)
         {
             void GLegend(uint c, string t)
             {
                 ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine();
-                ImGui.TextColored(Palette.ToVector(c), t);
+                Colored(Palette.ToVector(c), t);
             }
             GLegend(Palette.GrindPlaced, "placed by hand");
             GLegend(Palette.GrindTrack, "track-piece edges");
@@ -989,7 +1051,7 @@ public sealed partial class SatelliteApp : IDisposable
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Cell edges of the world's 250-unit grid (Gridify cells and terrain squares); 1000-unit tile edges in pink.\n" +
                 "In 3D the seams are drawn as walls: where a wall meets the ground is the seam.");
-        ImGui.TextDisabled("Objects");
+        Hint("Objects");
         Toggle("Item boxes", ref L.ItemBoxes, Palette.ForCategory(ObjectCategory.ItemBox));
         Toggle("Coins", ref L.Coins, Palette.ForCategory(ObjectCategory.Coin));
         Toggle("Dash / glide / rings / jumps", ref L.Boosts, Palette.ForCategory(ObjectCategory.DashPanel));
@@ -998,7 +1060,7 @@ public sealed partial class SatelliteApp : IDisposable
         Toggle("Fences", ref L.Fences, Palette.ForCategory(ObjectCategory.Fence));
         Toggle("Audience", ref L.Audience, Palette.ForCategory(ObjectCategory.Audience));
         Toggle("Other scenery", ref L.Scenery, Palette.ForCategory(ObjectCategory.Other));
-        ImGui.TextDisabled("Areas (physics box where known)");
+        Hint("Areas (physics box where known)");
         Toggle("Rescue / respawn areas", ref L.RespawnAreas, Palette.ForCategory(ObjectCategory.RespawnArea));
         Toggle("Recovery points", ref L.RecoveryPoints, Palette.ForCategory(ObjectCategory.RecoveryPoint));
         Toggle("Valley areas", ref L.ValleyAreas, Palette.ForCategory(ObjectCategory.ValleyArea));
@@ -1007,7 +1069,7 @@ public sealed partial class SatelliteApp : IDisposable
         Toggle("Rule areas (no reverse, no jump...)", ref L.RuleAreas, Palette.ForCategory(ObjectCategory.RuleArea));
         Toggle("Spawn / delete link areas", ref L.LinkAreas, Palette.ForCategory(ObjectCategory.LinkArea));
         Toggle("Other areas", ref L.OtherAreas, Palette.ForCategory(ObjectCategory.OtherArea));
-        ImGui.TextDisabled("Models");
+        Hint("Models");
         Toggle("Show models", ref L.Models);
         Toggle("Course geometry (Stage models)", ref L.StageModels);
         if (_terrain is not null)
@@ -1020,14 +1082,45 @@ public sealed partial class SatelliteApp : IDisposable
         if (_collision is not null) DrawCollisionToggles(Toggle);
         if (_models is { Errors.Count: > 0 } && ImGui.TreeNode($"Model errors ({_models.Errors.Count})"))
         {
-            lock (_models.Errors) foreach (var e in _models.Errors.Take(50)) ImGui.TextWrapped(e);
+            lock (_models.Errors) foreach (var e in _models.Errors.Take(50)) Wrapped(e);
             ImGui.TreePop();
         }
-        ImGui.TextDisabled("Scene layers");
+        Hint("Scene layers");
         Toggle("Race scene", ref L.LayerRace);
         Toggle("World / course static layer", ref L.LayerWorld);
         Toggle("Course _Fix layer", ref L.LayerCourseFix);
         if (changed) _view.Invalidate();
+    }
+
+    private Pickable? _windowFollowed;
+
+    /// <summary>
+    /// "Only near checkpoint": the lap path, gates, zones and labels for a few checkpoint sections around one, which
+    /// follows the selected lap node. Helps where parts of a course pass over each other.
+    /// </summary>
+    private void DrawCheckpointWindow(ref bool changed)
+    {
+        var L = _view.Layers;
+        if (_view.Sections is not { Max: >= 0 } sections) return;
+        changed |= ImGui.Checkbox("Only near checkpoint", ref L.CheckpointWindow);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Shows the lap path, gates, progress zones and labels only for a few checkpoints around one.\n" +
+                             "Select a lap node to centre on its checkpoint. A node belongs to the last checkpoint before it.");
+        if (!L.CheckpointWindow) return;
+        if (_view.Selected is PickedLapPoint lp && !ReferenceEquals(lp, _windowFollowed) && sections.Of(lp.Point) is { } s)
+        {
+            L.WindowCentre = s;
+            changed = true;
+        }
+        _windowFollowed = _view.Selected;
+        ImGui.Indent();
+        ImGui.SetNextItemWidth(120 * _uiScale);
+        changed |= ImGui.SliderInt("Checkpoint", ref L.WindowCentre, 0, sections.Max);
+        ImGui.SetNextItemWidth(120 * _uiScale);
+        changed |= ImGui.SliderInt("Before", ref L.WindowBefore, 0, Math.Max(1, sections.Max));
+        ImGui.SetNextItemWidth(120 * _uiScale);
+        changed |= ImGui.SliderInt("After", ref L.WindowAfter, 0, Math.Max(1, sections.Max));
+        ImGui.Unindent();
     }
 
     private bool _collisionOnly;
@@ -1036,10 +1129,10 @@ public sealed partial class SatelliteApp : IDisposable
     private void DrawCollisionToggles(ToggleFn toggle)
     {
         var L = _view.Layers;
-        ImGui.TextDisabled("Collision");
+        Hint("Collision");
         toggle("Collision (Phive)", ref L.Collision, Palette.ForCollisionMaterial("Road"));
         if (!L.Collision) return;
-        if (_collisionStatus is not null) { ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine(); ImGui.TextDisabled(_collisionStatus); }
+        if (_collisionStatus is not null) { ImGui.Dummy(new Vector2(22 * _uiScale, 0)); ImGui.SameLine(); Hint(_collisionStatus); }
         if (ImGui.Checkbox("Collision only (hide terrain, water, models)", ref _collisionOnly))
         {
             // Hides the other geometry and restores what was shown before when unticked.
@@ -1078,7 +1171,7 @@ public sealed partial class SatelliteApp : IDisposable
             if (ImGui.Checkbox("Only performance surfaces", ref L.CollisionPerformanceOnly)) _view.Invalidate();
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip("Hides walls, volumes and anything else that is not one of the three stat groups.");
-            ImGui.TextDisabled(PerformanceSurfaces.Source);
+            Hint(PerformanceSurfaces.Source);
         }
         toggle(_collision?.Mesh is { } om ? $"Object collision ({om.Objects.Count})" : "Object collision", ref L.CollisionObjects);
         if (ImGui.IsItemHovered())
@@ -1127,7 +1220,7 @@ public sealed partial class SatelliteApp : IDisposable
         }
         if (_collisionErrors.Count > 0 && ImGui.TreeNode($"Errors ({_collisionErrors.Count})"))
         {
-            foreach (var e in _collisionErrors.Take(30)) ImGui.TextWrapped(e);
+            foreach (var e in _collisionErrors.Take(30)) Wrapped(e);
             ImGui.TreePop();
         }
         ImGui.TreePop();
@@ -1140,27 +1233,29 @@ public sealed partial class SatelliteApp : IDisposable
         var fb = _window.FramebufferSize;
         ImGui.SetNextWindowPos(new Vector2(fb.X - RightPanelWidth, 0));
         ImGui.SetNextWindowSize(new Vector2(RightPanelWidth, fb.Y));
-        ImGui.Begin("Inspector", ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse);
+        ImGui.Begin("Inspector", PanelFlags);
+        if (HideButton(">>", "Hide this panel (drag its left edge to resize)")) _rightHidden = true;
         if (_view.Course is { } c && _view.Selected is null)
         {
-            ImGui.TextWrapped(c.Name);
-            ImGui.TextDisabled($"static layer: {c.StaticLayerSource}");
-            ImGui.Text($"{c.Objects.Count} objects, {c.Rails.Count} rails");
-            ImGui.Text($"lap nodes {c.LapPoints.Count}, checkpoints {c.LapPoints.Count(l => l.CheckPoint is not null)}");
+            if (_courseFile is not null && _names?.Of(_courseFile) is { } title) IText(title);
+            IText(c.Name);
+            IDim($"static layer: {c.StaticLayerSource}");
+            IText($"{c.Objects.Count} objects, {c.Rails.Count} rails");
+            IText($"lap nodes {c.LapPoints.Count}, checkpoints {c.LapPoints.Count(l => l.CheckPoint is not null)}");
             ImGui.Separator();
             if (ImGui.BeginTable("cats", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
             {
                 foreach (var g in c.Objects.GroupBy(o => (o.Category, o.Layer)).OrderBy(g => g.Key.Category))
                 {
                     ImGui.TableNextRow();
-                    ImGui.TableNextColumn(); ImGui.TextColored(Palette.ToVector(Palette.ForCategory(g.Key.Category)), g.Key.Category.ToString());
-                    ImGui.TableNextColumn(); ImGui.TextDisabled(g.Key.Layer.ToString());
-                    ImGui.TableNextColumn(); ImGui.Text(g.Count().ToString());
+                    ImGui.TableNextColumn(); IColored(Palette.ToVector(Palette.ForCategory(g.Key.Category)), g.Key.Category.ToString());
+                    ImGui.TableNextColumn(); IDim(g.Key.Layer.ToString());
+                    ImGui.TableNextColumn(); IText(g.Count().ToString());
                 }
                 ImGui.EndTable();
             }
             ImGui.Separator();
-            ImGui.Text("Paths");
+            IText("Paths");
             if (ImGui.BeginTable("paths", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
             {
                 foreach (var g in c.Rails.GroupBy(r => r.Kind).OrderByDescending(g => g.Count()))
@@ -1169,11 +1264,11 @@ public sealed partial class SatelliteApp : IDisposable
                     ImGui.TableNextRow();
                     ImGui.TableNextColumn();
                     var col = RailKinds.IsGrind(g.Key) ? Palette.ForGrind(g.First()) : Palette.ForRail(g.Key);
-                    ImGui.TextColored(Palette.ToVector(Palette.WithAlpha(col, 0xFF)), info.Label);
+                    IColored(Palette.ToVector(Palette.WithAlpha(col, 0xFF)), info.Label);
                     if (ImGui.IsItemHovered()) ImGui.SetTooltip($"{g.Key}\n{info.Description}\nBasis: {info.Basis}");
-                    ImGui.TableNextColumn(); ImGui.Text(g.Count().ToString());
-                    ImGui.TableNextColumn(); ImGui.TextDisabled($"{g.Sum(r => r.Rail.Points.Count)} nodes");
-                    ImGui.TableNextColumn(); ImGui.TextDisabled($"{g.Sum(r => r.Length):0} u");
+                    ImGui.TableNextColumn(); IText(g.Count().ToString());
+                    ImGui.TableNextColumn(); IDim($"{g.Sum(r => r.Rail.Points.Count)} nodes");
+                    ImGui.TableNextColumn(); IDim($"{g.Sum(r => r.Length):0} u");
                 }
                 ImGui.EndTable();
             }
@@ -1181,20 +1276,20 @@ public sealed partial class SatelliteApp : IDisposable
             if (grind.Count > 0 && ImGui.TreeNode("Grind rails by RailSlideType"))
             {
                 foreach (var g in grind)
-                    ImGui.TextColored(Palette.ToVector(Palette.WithAlpha(Palette.ForGrind(g.First()), 0xFF)),
+                    IColored(Palette.ToVector(Palette.WithAlpha(Palette.ForGrind(g.First()), 0xFF)),
                         $"{g.Key}: {RailKinds.GrindTypeLabel(g.Key)}  x{g.Count()}, {g.Sum(r => r.Length):0} u");
                 ImGui.TreePop();
             }
-            ImGui.TextDisabled("Hover a path name for what it is. Click something in the view to inspect it.");
+            IDim("Hover a path name for what it is. Click something in the view to inspect it.");
         }
         switch (_view.Selected)
         {
             case PickedObject { Object: var o }:
-                ImGui.TextWrapped(o.Type);
-                ImGui.TextColored(Palette.ToVector(Palette.ForCategory(o.Category)), $"{o.Category}  ({o.Layer} layer)");
-                if (CourseObjectClassifier.Gloss(o.Type) is { } gloss) ImGui.TextWrapped(gloss);
-                if (o.Info is { } info) ImGui.TextDisabled($"[{info.Category}] {info.Label}");
-                if (_models?.ModelPathOf(o.Type) is { } modelPath) ImGui.TextDisabled($"model: {modelPath}");
+                IText(o.Type);
+                IColored(Palette.ToVector(Palette.ForCategory(o.Category)), $"{o.Category}  ({o.Layer} layer)");
+                if (CourseObjectClassifier.Gloss(o.Type) is { } gloss) IText(gloss);
+                if (o.Info is { } info) IDim($"[{info.Category}] {info.Label}");
+                if (_models?.ModelPathOf(o.Type) is { } modelPath) IDim($"model: {modelPath}");
                 foreach (var link in o.IncomingLinks)
                 {
                     var role = (link.Source.Type, link.LinkName) switch
@@ -1205,12 +1300,12 @@ public sealed partial class SatelliteApp : IDisposable
                         ("Area_DeleteLinkedActor_00", _) => "Linked from delete area (likely inert in 1.8)",
                         _ => $"Linked ({link.LinkName}) from",
                     };
-                    ImGui.TextColored(new Vector4(1, 1, 0.5f, 1), $"{role} {link.Source.Type} at {link.Source.Position.X:0}, {link.Source.Position.Z:0}");
+                    IColored(new Vector4(1, 1, 0.5f, 1), $"{role} {link.Source.Type} at {link.Source.Position.X:0}, {link.Source.Position.Z:0}");
                 }
                 if (o.Actor.Raw.Dict("ScreenSetting") is { } screens)
-                    ImGui.TextColored(new Vector4(0.6f, 0.8f, 1, 1), "Split-screen: " + string.Join(", ", screens.Select(kv => $"{kv.Key}={kv.Value}")) + "  (1 = not spawned in that mode; ignored in single-player)");
-                if (o.Actor.Raw.Get<string>("AreaName") is { } area) ImGui.TextDisabled($"area: {area}");
-                if (o.IsArea && _models is not null) ImGui.TextWrapped("shape: " + _models.Resolver.AreaShapeOf(o.Type).Description);
+                    IColored(new Vector4(0.6f, 0.8f, 1, 1), "Split-screen: " + string.Join(", ", screens.Select(kv => $"{kv.Key}={kv.Value}")) + "  (1 = not spawned in that mode; ignored in single-player)");
+                if (o.Actor.Raw.Get<string>("AreaName") is { } area) IDim($"area: {area}");
+                if (o.IsArea && _models is not null) IText("shape: " + _models.Resolver.AreaShapeOf(o.Type).Description);
                 if (!DrawEditFields())
                 {
                     Vec("Position", o.Position);
@@ -1221,13 +1316,13 @@ public sealed partial class SatelliteApp : IDisposable
                 Dict("All fields", o.Actor.Raw);
                 break;
             case PickedLapPoint { Point: var l }:
-                ImGui.Text($"Lap path node {l.Index}");
-                if (l.CheckPoint is { } cp) ImGui.TextColored(Palette.ToVector(Palette.CheckpointGate), $"CheckPoint {cp:0}");
-                if (l.IsStart) ImGui.Text("IsStart");
-                if (l.IsGoal) ImGui.Text("IsGoal");
-                if (l.IsLapCheck) ImGui.Text("IsLapCheck");
-                ImGui.Text($"Gate size  {l.RectSize.X:0.##} x {l.RectSize.Y:0.##}");
-                ImGui.Text($"Gate offset {l.RectOffset.X:0.##}, {l.RectOffset.Y:0.##}");
+                IText($"Lap path node {l.Index}");
+                if (l.CheckPoint is { } cp) IColored(Palette.ToVector(Palette.CheckpointGate), $"CheckPoint {cp:0}");
+                if (l.IsStart) IText("IsStart");
+                if (l.IsGoal) IText("IsGoal");
+                if (l.IsLapCheck) IText("IsLapCheck");
+                IText($"Gate size  {l.RectSize.X:0.##} x {l.RectSize.Y:0.##}");
+                IText($"Gate offset {l.RectOffset.X:0.##}, {l.RectOffset.Y:0.##}");
                 if (!DrawEditFields())
                 {
                     Vec("Position", l.Position);
@@ -1239,29 +1334,46 @@ public sealed partial class SatelliteApp : IDisposable
             case PickedRailPoint { Rail: var r, Index: var i }:
                 var pt = r.Rail.Points[i];
                 var rk = r.Info;
-                ImGui.TextColored(Palette.ToVector(Palette.WithAlpha(RailKinds.IsGrind(r.Kind) ? Palette.ForGrind(r) : Palette.ForRail(r.Kind), 0xFF)), rk.Label);
-                ImGui.SameLine(); ImGui.TextDisabled(r.Kind);
-                ImGui.TextWrapped(rk.Description);
-                ImGui.TextDisabled($"basis: {rk.Basis}");
+                IColored(Palette.ToVector(Palette.WithAlpha(RailKinds.IsGrind(r.Kind) ? Palette.ForGrind(r) : Palette.ForRail(r.Kind), 0xFF)), rk.Label);
+                ImGui.SameLine(); IDim(r.Kind);
+                IText(rk.Description);
+                IDim($"basis: {rk.Basis}");
                 ImGui.Separator();
-                ImGui.Text($"node {i} of {r.Rail.Points.Count}{(r.Rail.IsClosed ? ", closed loop" : "")}, length {r.Length:0.#} u");
-                ImGui.TextDisabled($"{r.Layer} layer");
-                if (r.Kind == RailKinds.Grind) ImGui.Text($"RailSlideType {r.GrindType}: {RailKinds.GrindTypeLabel(r.GrindType)}");
+                IText($"node {i} of {r.Rail.Points.Count}{(r.Rail.IsClosed ? ", closed loop" : "")}, length {r.Length:0.#} u");
+                IDim($"{r.Layer} layer");
+                if (r.Kind == RailKinds.Grind) IText($"RailSlideType {r.GrindType}: {RailKinds.GrindTypeLabel(r.GrindType)}");
                 if (RailKinds.IsGrind(r.Kind))
                 {
                     var angle = pt.Dynamic?.Get<bool>("IsAngleLimit") ?? r.Dynamic?.Get<bool>("IsAngleLimit") ?? false;
-                    if (angle) ImGui.TextWrapped("IsAngleLimit (this node, or the rail default): read with the rail when a kart looks for one; effect not traced.");
-                    if (pt.Dynamic?.Get<bool>("IsHighPriority") == true) ImGui.TextWrapped("IsHighPriority: read with the rail when a kart looks for one; effect not traced.");
+                    if (angle) IText("IsAngleLimit (this node, or the rail default): read with the rail when a kart looks for one; effect not traced.");
+                    if (pt.Dynamic?.Get<bool>("IsHighPriority") == true) IText("IsHighPriority: read with the rail when a kart looks for one; effect not traced.");
                     var sz = CourseMath.Vec2(pt.Raw.Array("RectSize"));
-                    ImGui.TextDisabled($"catch box grows by max(RectSize) = {MathF.Max(sz.X, sz.Y):0.##} u around each segment");
+                    IDim($"catch box grows by max(RectSize) = {MathF.Max(sz.X, sz.Y):0.##} u around each segment");
                 }
-                if (r.ParentPrefab is { } prefab) ImGui.TextWrapped($"from prefab: {prefab}" + (prefab.Contains("Houdini/Auto_") ? " (generated)" : ""));
+                if (r.ParentPrefab is { } prefab) IText($"from prefab: {prefab}" + (prefab.Contains("Houdini/Auto_") ? " (generated)" : ""));
                 if (r.ParentActor is { } ph)
-                    ImGui.TextColored(new Vector4(1, 1, 0.5f, 1), _view.Course!.ObjectsByHash.TryGetValue(ph, out var po)
+                    IColored(new Vector4(1, 1, 0.5f, 1), _view.Course!.ObjectsByHash.TryGetValue(ph, out var po)
                         ? $"belongs to {po.Type} at {po.Position.X:0}, {po.Position.Z:0}" : $"belongs to actor {ph:X16} (outside the loaded area)");
                 if (_view.Course!.RailUsers.TryGetValue(r, out var users))
                     foreach (var (uo, node, link) in users)
-                        ImGui.TextColored(new Vector4(0.6f, 1, 0.6f, 1), $"used by {uo.Type} ({link} -> node {node})");
+                        IColored(new Vector4(0.6f, 1, 0.6f, 1), $"used by {uo.Type} ({link} -> node {node})");
+                if (r.Kind == RailKinds.Route && _view.Recover is { } rec)
+                {
+                    var node = new RecoverRules.Node(r, i);
+                    var land = rec.Landing(node);
+                    var how = node.RecoverType switch
+                    {
+                        1 => "step back", 2 => "step forward", 3 => "re-pick the nearest route point (treated as stay)",
+                        4 => "recover override (treated as stay)", _ => "respawn here",
+                    };
+                    IText($"Lakitu: RecoverType {node.RecoverType} = {how}");
+                    if (land != node)
+                        IText($"respawn from here lands on {(land.Rail == r ? "" : "another route's ")}node {land.Index}" +
+                              (land.Rail == r ? "" : $" (route of {land.Rail.Rail.Points.Count} nodes)"));
+                    if (land.IsRecoverDash)
+                        IColored(Palette.ToVector(Palette.RecoverDash),
+                            land == node ? "IsRecoverDash: respawning here gives the boost (unverified)" : "that node has IsRecoverDash: boost on respawn (unverified)");
+                }
                 Dict("Rail parameters", r.Dynamic);
                 if (!DrawEditFields())
                 {
@@ -1279,13 +1391,21 @@ public sealed partial class SatelliteApp : IDisposable
     private static float CreateLinkActiveSec(CourseObject area) =>
         area.Actor.Dynamic?.TryGetValue("ActiveSec", out var v) == true && v is float f ? f : 10f;
 
-    private static void Vec(string label, Vector3 v) => ImGui.Text($"{label,-13} {v.X,9:0.###} {v.Y,9:0.###} {v.Z,9:0.###}");
+    private void Vec(string label, Vector3 v) =>
+        IText($"{label,-13} {v.X,9:0.###} {v.Y,9:0.###} {v.Z,9:0.###}", FormattableString.Invariant($"{v.X}, {v.Y}, {v.Z}"));
 
-    private static void Dict(string label, BymlDict? d)
+    /// <summary>A collapsible list of a BYML dict's fields: clicking a field copies its value; right-click the header to copy them all.</summary>
+    private void Dict(string label, BymlDict? d)
     {
         if (d is null || d.Count == 0) return;
-        if (!ImGui.TreeNodeEx(label, label == "Dynamic" ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) return;
-        foreach (var (k, v) in d) ImGui.TextWrapped($"{k}: {Format(v)}");
+        var open = ImGui.TreeNodeEx(label, label == "Dynamic" ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+        if (ImGui.BeginPopupContextItem())
+        {
+            if (ImGui.MenuItem("Copy all fields")) ImGui.SetClipboardText(string.Join("\n", d.Select(kv => $"{kv.Key}: {Format(kv.Value)}")));
+            ImGui.EndPopup();
+        }
+        if (!open) return;
+        foreach (var (k, v) in d) IText($"{k}: {Format(v)}", Format(v));
         ImGui.TreePop();
     }
 
