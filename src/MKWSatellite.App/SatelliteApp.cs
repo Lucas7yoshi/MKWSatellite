@@ -1105,7 +1105,9 @@ public sealed partial class SatelliteApp : IDisposable
         changed |= ImGui.Checkbox("Only near checkpoint", ref L.CheckpointWindow);
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Shows the lap path, gates, progress zones and labels only for a few checkpoints around one.\n" +
-                             "Select a lap node to centre on its checkpoint. A node belongs to the last checkpoint before it.");
+                             "Select a lap node to centre on its checkpoint. A node belongs to the last checkpoint before it.\n" +
+                             "Checkpoint numbers that start again after a lap check (intermission courses) are separate parts.\n" +
+                             "Before / After count sections along the path, including branches.");
         if (!L.CheckpointWindow) return;
         if (_view.Selected is PickedLapPoint lp && !ReferenceEquals(lp, _windowFollowed) && sections.Of(lp.Point) is { } s)
         {
@@ -1113,9 +1115,10 @@ public sealed partial class SatelliteApp : IDisposable
             changed = true;
         }
         _windowFollowed = _view.Selected;
+        if (L.WindowCentre > sections.Max) { L.WindowCentre = 0; changed = true; }
         ImGui.Indent();
         ImGui.SetNextItemWidth(120 * _uiScale);
-        changed |= ImGui.SliderInt("Checkpoint", ref L.WindowCentre, 0, sections.Max);
+        changed |= ImGui.SliderInt("Checkpoint", ref L.WindowCentre, 0, sections.Max, sections.Label(L.WindowCentre).Replace("%", "%%"));
         ImGui.SetNextItemWidth(120 * _uiScale);
         changed |= ImGui.SliderInt("Before", ref L.WindowBefore, 0, Math.Max(1, sections.Max));
         ImGui.SetNextItemWidth(120 * _uiScale);

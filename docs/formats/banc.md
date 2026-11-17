@@ -98,6 +98,10 @@ rail's `IsClosed`.
   `IsGoal` (6), `IsLapCheck` (15), `ChangeId` (15), `IsJugemLeft` (24), `LerpType` (145, traced above). Otherwise names only: their
   gameplay meaning (e.g. what counts as passing a checkpoint) has **not** been traced yet.
 - `CheckPoint` numbering restarts per section on multi-section courses like Rainbow Road.
+- On intermission (`InterStageEx1_*`) scenes the numbering also restarts after every `IsLapCheck` node: e.g.
+  ChocoMountainToCentral runs 1-3 on the approach, lap check, 1-3, lap check, then 1-6 around Crown City. The lap
+  checks look like the intermission's lap counter (**unverified**). The viewer's "Only near checkpoint" groups nodes by
+  (lap checks passed, last checkpoint) walking the lap graph from `IsStart` (`LapSections`), so repeated numbers stay apart.
 
 ### Route path
 `Dynamic` has `AssistLerpType`, `ItemType`, `RecoverType` (meanings unknown).
