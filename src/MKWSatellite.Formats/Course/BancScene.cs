@@ -82,4 +82,15 @@ public sealed record BancRailPoint(ulong Hash, Vector3 Translation, Vector3 Rota
         d.Dict("Dynamic"),
         BancScene.Items(d.Array("Links")).OfType<BymlDict>().Select(l => l.Get<ulong>("Dst")).ToList(),
         d);
+
+    private Vector3? _control0, _control1;
+
+    /// <summary>
+    /// Curve handle on the incoming side (bends the segment that ends here). <c>RailGraph_ParseRail</c> (0x710029AD70)
+    /// uses <see cref="Translation"/> when the node has no <c>Control0</c>. See <see cref="RailCurve"/>.
+    /// </summary>
+    public Vector3 Control0 => _control0 ??= Raw.Array("Control0") is { } a ? BancScene.Vec3(a) : Translation;
+
+    /// <summary>Curve handle on the outgoing side (bends the segment that starts here); <see cref="Translation"/> if absent.</summary>
+    public Vector3 Control1 => _control1 ??= Raw.Array("Control1") is { } a ? BancScene.Vec3(a) : Translation;
 }

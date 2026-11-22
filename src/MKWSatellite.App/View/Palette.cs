@@ -75,6 +75,8 @@ public static class Palette
     /// <summary>Route point with <c>IsKillerReleasable</c>.</summary>
     public static readonly uint BulletReleasable = Rgb(90, 255, 120);
     public static readonly uint Hover = Rgb(255, 255, 255, 0xC0);
+    /// <summary>Rail node curve handles (<c>Control0</c>/<c>Control1</c>) on the selected rail.</summary>
+    public static readonly uint CurveHandle = Rgb(255, 230, 90, 0xE0);
 
     public static uint ForRoute(BymlDict? d)
     {

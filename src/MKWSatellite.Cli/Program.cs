@@ -240,6 +240,64 @@ modelCmd.SetAction(parse =>
 });
 root.Subcommands.Add(modelCmd);
 
+// rails: per rail kind, how segments are shaped (RailCurve) and which keys rails and nodes carry
+var railsKind = new Option<string?>("--kind") { Description = "Only this rail kind (e.g. RailSlidePath); lists its rail- and node-level keys." };
+var railsCmd = new Command("rails", "Census of rail kinds over race scenes and World_Game03 tiles: curved segments (Control0/Control1) and keys.") { railsKind };
+railsCmd.SetAction(parse =>
+{
+    var fs = OpenFs(parse.GetValue(romfsOption));
+    if (fs is null) return 1;
+    var only = parse.GetValue(railsKind);
+    var scenes = fs.ListFiles(BancScene.RomfsDirectory, "Race_*.bcett.byml.zs").Select(f => $"{BancScene.RomfsDirectory}/{f}")
+        .Concat(fs.ListFiles(CourseLoader.WorldDirectory, "*.bcett.byml.zs").Select(f => $"{CourseLoader.WorldDirectory}/{f}")).ToList();
+    var stats = new SortedDictionary<string, (int Rails, int Curved, int[] Shapes, int Handles0, int Handles1, int Points)>();
+    var railKeys = new SortedDictionary<string, int>();
+    var nodeKeys = new SortedDictionary<string, int>();
+    var examples = new List<string>();
+    foreach (var path in scenes)
+    {
+        var scene = BancScene.Parse(fs.Read(path));
+        foreach (var r in scene.Rails)
+        {
+            if (only is not null && r.Name != only) continue;
+            (int Rails, int Curved, int[] Shapes, int Handles0, int Handles1, int Points) s = stats.TryGetValue(r.Name, out var v) ? v : (0, 0, new int[4], 0, 0, 0);
+            s.Rails++;
+            s.Points += r.Points.Count;
+            s.Handles0 += r.Points.Count(p => p.Raw.ContainsKey("Control0"));
+            s.Handles1 += r.Points.Count(p => p.Raw.ContainsKey("Control1"));
+            var curved = false;
+            foreach (var (a, b) in RailCurve.Segments(r))
+            {
+                var shape = RailCurve.ShapeOf(r.Points[a], r.Points[b]);
+                s.Shapes[(int)shape]++;
+                curved |= shape != RailCurve.Shape.Line;
+            }
+            if (curved) { s.Curved++; if (examples.Count < 8) examples.Add($"{r.Name} in {Path.GetFileName(path)} ({r.Points.Count} nodes, {r.Raw.Get<string>("ParentPrefab")})"); }
+            stats[r.Name] = s;
+            if (only is null) continue;
+            foreach (var k in r.Raw.Keys) railKeys[k] = railKeys.GetValueOrDefault(k) + 1;
+            foreach (var k in (IEnumerable<string>?)r.Raw.Dict("Dynamic")?.Keys ?? []) railKeys["Dynamic." + k] = railKeys.GetValueOrDefault("Dynamic." + k) + 1;
+            foreach (var p in r.Points)
+            {
+                foreach (var k in p.Raw.Keys) nodeKeys[k] = nodeKeys.GetValueOrDefault(k) + 1;
+                foreach (var k in (IEnumerable<string>?)p.Dynamic?.Keys ?? []) nodeKeys["Dynamic." + k] = nodeKeys.GetValueOrDefault("Dynamic." + k) + 1;
+            }
+        }
+    }
+    Console.WriteLine($"{scenes.Count} scenes");
+    Console.WriteLine($"{"kind",-20} {"rails",6} {"curved",6} {"nodes",7} {"Ctrl0",6} {"Ctrl1",6}   segments: line / start-only / end-only / cubic");
+    foreach (var (k, s) in stats)
+        Console.WriteLine($"{k,-20} {s.Rails,6} {s.Curved,6} {s.Points,7} {s.Handles0,6} {s.Handles1,6}   {s.Shapes[0]} / {s.Shapes[1]} / {s.Shapes[2]} / {s.Shapes[3]}");
+    if (examples.Count > 0) { Console.WriteLine("curved examples:"); foreach (var e in examples) Console.WriteLine($"  {e}"); }
+    if (only is not null)
+    {
+        Console.WriteLine("rail keys:"); foreach (var (k, n) in railKeys) Console.WriteLine($"  {k}: {n}");
+        Console.WriteLine("node keys:"); foreach (var (k, n) in nodeKeys) Console.WriteLine($"  {k}: {n}");
+    }
+    return 0;
+});
+root.Subcommands.Add(railsCmd);
+
 // ground: measure how far lap nodes and areas sit above the course geometry (Stage models, as the viewer places them)
 var groundCourse = new Argument<string>("course") { Description = "Race scene name filter, e.g. AirshipFortress_A." };
 var groundCmd = new Command("ground", "Vertical distance from lap nodes and areas to the course models below/above them.") { groundCourse };

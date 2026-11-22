@@ -315,6 +315,7 @@ public sealed partial class SatelliteApp : IDisposable
         if (_view.Course is not { } c) return;
         var (min, max) = CourseView.FrameBounds(c);
         _orbit.Frame(min, max);
+        if (_options.Target is { } t) _orbit.Target = t;
         if (_options.Orbit is { } o)
         {
             _orbit.Yaw = o.X * MathF.PI / 180;
@@ -1343,6 +1344,19 @@ public sealed partial class SatelliteApp : IDisposable
                 IDim($"basis: {rk.Basis}");
                 ImGui.Separator();
                 IText($"node {i} of {r.Rail.Points.Count}{(r.Rail.IsClosed ? ", closed loop" : "")}, length {r.Length:0.#} u");
+                if (r.IsCurved)
+                {
+                    string Shape(int from, int to) => RailCurve.ShapeOf(r.Rail.Points[from], r.Rail.Points[to]) switch
+                    {
+                        RailCurve.Shape.Cubic => "cubic curve", RailCurve.Shape.StartHandle or RailCurve.Shape.EndHandle => "quadratic curve",
+                        _ => "straight",
+                    };
+                    var segs = RailCurve.Segments(r.Rail).ToList();
+                    var into = segs.FirstOrDefault(s => s.To == i, (From: -1, To: -1));
+                    var outOf = segs.FirstOrDefault(s => s.From == i, (From: -1, To: -1));
+                    IText($"curved rail: {(into.From >= 0 ? $"in {Shape(into.From, into.To)}" : "start")}, {(outOf.From >= 0 ? $"out {Shape(outOf.From, outOf.To)}" : "end")}");
+                    IDim("bent by the nodes' Control0 (in) / Control1 (out) handles, as the game does (handles drawn in yellow)");
+                }
                 IDim($"{r.Layer} layer");
                 if (r.Kind == RailKinds.Grind) IText($"RailSlideType {r.GrindType}: {RailKinds.GrindTypeLabel(r.GrindType)}");
                 if (RailKinds.IsGrind(r.Kind))

@@ -29,6 +29,53 @@ Counts over all 57 race scenes (race) and the 160 `World_Game03` tiles (world).
 `RailDefine` also lists `CitizenPath`, `GravityPath`, `GravityCameraPath`, `OffroadPath`, `ParkingPath`, `RidePath`
 and `WaterFlowPath`. None of them appear in the 1.8 race scenes or world tiles.
 
+## Curves (all kinds)
+
+Rails are not polylines: a segment can bend through Bezier handles stored on its nodes. Traced in 1.8; the code is
+shared by every rail kind.
+
+- **Parsing.** `RailGraph_ParseRail` (`0x710029AD70`) reads each node's `Translation`, `Control0`, `Control1` and
+  `Rotate`. A missing handle becomes the node's own position. `Rotate` becomes the node's up vector (local +Y, see
+  `CourseMathTests`).
+- **Segments.** `RailBody_AddPoint` (`0x710029A9A0`) chains the nodes into segments: node i to node i+1, plus last to
+  first when `IsClosed`. `Links` to other rails are graph edges, not segments, so they stay straight.
+- **Shape.** `RailSegment_SetCurveType` (`0x7100980E00`) looks at the two inner handles: the start node's `Control1`
+  and the end node's `Control0`. A handle counts when any axis is more than 0.001 from its node.
+  - No handles: straight line.
+  - One handle: quadratic Bezier through it.
+  - Both handles: cubic Bezier (P0, start `Control1`, end `Control0`, P1).
+  - So `Control0` bends the segment coming into a node and `Control1` the one going out.
+- **Use.**
+  - `RailSegment_Evaluate` (`0x710070AC60`) and `RailSegment_TangentAt` (`0x7102A95660`) evaluate these curves.
+  - The grind-rail search (`RailSlideSearcher_FindNearest`) inlines the same evaluation and tests 10 steps per
+    segment.
+  - `RailSegment_UpAt` (`0x710070AE50`) slerps the two nodes' up vectors, so node `Rotate` sets the rail's roll.
+  - The game's debug draw (`RailSegment_DebugDraw`, `0x7102A95730`) uses 9–16 steps per curved segment.
+- A subclass of the segment (`0x7102A96680`, flag at +0x90) evaluates a Hermite curve from tangents instead. It is not
+  driven by any Banc key we know of, and the viewer ignores it.
+
+Usage in 1.8 (race scenes + world tiles; `mkwsat rails`):
+
+| Kind | Rails | Curved | Segments: line / one handle / cubic |
+|---|---|---|---|
+| `RailSlidePath` | 2972 | 938 | 11087 / 2378 / 6783 |
+| `ColRailSlidePath` | 4715 | 1306 | 3409 / 2612 / 0 |
+| `GuideGraphRail` | 397 | 322 | 661 / 187 / 1939 |
+| `WaterCascadePath` | 164 | 156 | 8 / 30 / 132 |
+| `PullPath` | 80 | 1 | 211 / 4 / 7 |
+| `LapPathGraph` | 100 | 0 | 2674 / 0 / 0 |
+| `RoutePathGraph` | 1963 | 1 | 16979 / 2 / 0 |
+| `GlidePath`, `WhirlpoolPath` | 69 | 0 | all straight |
+
+- Each curved `ColRailSlidePath` has a single node with both handles, which bends the segment on either side of it.
+- Lap paths and AI routes are effectively straight. The straight-segment logic for lap zones and Bullet Bill
+  look-ahead is therefore unaffected.
+- `Marking` (on some grind rails and their nodes) is only read by the actor placement parser
+  (`BancPlacement_ParseTransformMarkingScreen`), not by the rail parser. It is probably editor data (**unverified**).
+
+The viewer draws every segment along its curve (`RailCurve`, at least 8 samples, about one per unit up to 64). It
+measures rail length along the curve, and shows the handles of the selected rail in yellow.
+
 ## Grind rails (`RailSlidePath`, `ColRailSlidePath`)
 
 - **Both kinds are grind rails.** `0x71002A1140` adds `CountRail.RailSlidePath` and `CountRail.ColRailSlidePath`
@@ -77,4 +124,5 @@ These are not something the player rides. Actors link to one of their nodes (`Ba
 `MessageLink`) and follow the path. In DK Summit: `CmnObj_SnowBoarderShyGuy000_A_00` (the snowboarding Shy Guys),
 `CmnObj_Eagle000_A_00`, `SystemObj_SkiLift_Mgr` and `SystemObj_ActorGeneratePoint_00`. Node `Dynamic`:
 `VelocityScale` (0.1–10), `Param1`, `Param2`. Their meaning depends on the follower and is **unverified**. The
-inspector lists the objects that use a selected path.
+inspector lists the objects that use a selected path. Most object paths are curved (322 of 397, mostly cubic; see
+"Curves"). Whether every follower moves along the curve rather than straight between nodes is not traced per actor.

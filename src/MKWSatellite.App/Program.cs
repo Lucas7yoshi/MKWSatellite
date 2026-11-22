@@ -43,6 +43,8 @@ namespace MKWSatellite.App
         public bool SizeGiven { get; init; }
         /// <summary>Initial 3D camera: yaw and pitch in degrees, distance (0 = framed).</summary>
         public System.Numerics.Vector3? Orbit { get; init; }
+        /// <summary>Point the 3D camera orbits (--target x,y,z); null = course centre.</summary>
+        public System.Numerics.Vector3? Target { get; init; }
         /// <summary>Hide the side panels (map-only screenshots).</summary>
         public bool NoUi { get; init; }
         /// <summary>Layer overrides from --layer Field=value (bool fields: 0/1, float fields: a number).</summary>
@@ -58,7 +60,7 @@ namespace MKWSatellite.App
             bool view3d = false, noModels = false, firstPerson = false;
             float? uiScale = null;
             var sizeGiven = false;
-            System.Numerics.Vector3? orbit = null;
+            System.Numerics.Vector3? orbit = null, target = null;
             var noUi = false;
             var layers = new List<(string, string)>();
             for (var i = 0; i < args.Length; i++)
@@ -86,10 +88,14 @@ namespace MKWSatellite.App
                         var o = args[++i].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
                         orbit = new System.Numerics.Vector3(o[0], o.Length > 1 ? o[1] : 45, o.Length > 2 ? o[2] : 0);
                         break;
+                    case "--target" when i + 1 < args.Length:
+                        var t = args[++i].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                        target = new System.Numerics.Vector3(t[0], t[1], t[2]);
+                        break;
                     default: romfs.Add(args[i]); break;
                 }
             }
-            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, FirstPerson = firstPerson, NoModels = noModels, Orbit = orbit, UiScale = uiScale, SizeGiven = sizeGiven, NoUi = noUi, Layers = layers };
+            return new AppOptions(romfs, course, shot, w, h) { View3D = view3d, FirstPerson = firstPerson, NoModels = noModels, Orbit = orbit, Target = target, UiScale = uiScale, SizeGiven = sizeGiven, NoUi = noUi, Layers = layers };
         }
     }
 }

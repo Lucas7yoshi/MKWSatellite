@@ -96,6 +96,7 @@ public sealed class CourseView(PrimitiveBatch batch)
     private float _minY, _maxY;
     private readonly List<(Pickable Item, float RadiusPx)> _pickables = [];
     private readonly Dictionary<CourseRail, List<(int Segment, float From, float To)>> _lookAhead = new(ReferenceEqualityComparer.Instance);
+    private readonly List<Vector3> _curve = [];
     private (CourseScene Course, LapSections Sections, Dictionary<BancRailPoint, LapPoint> ByPoint)? _sections;
     private (CourseScene Course, RecoverRules Rules)? _recover;
 
@@ -345,10 +346,25 @@ public sealed class CourseView(PrimitiveBatch batch)
                 Line(a, b, px, col);
                 if (isRoute && Vector3.Distance(a, b) > 30 * Upp((a + b) / 2)) Chevron(a, b, col); // direction of travel
             }
-            // With the checkpoint window on, a lap segment is drawn when the node it starts from is shown.
-            for (var i = 1; i < pts.Count; i++)
-                if (!isLap || LapShown(pts[i - 1])) Seg(pts[i - 1].Translation, pts[i].Translation);
-            if (r.Rail.IsClosed && pts.Count > 2 && (!isLap || LapShown(pts[^1]))) Seg(pts[^1].Translation, pts[0].Translation);
+            // Segments follow the game's curves (RailCurve: Bezier through Control1 of the start node and Control0 of the
+            // end node). With the checkpoint window on, a lap segment is drawn when the node it starts from is shown.
+            foreach (var (a, b) in RailCurve.Segments(r.Rail))
+            {
+                if (isLap && !LapShown(pts[a])) continue;
+                if (RailCurve.ShapeOf(pts[a], pts[b]) == RailCurve.Shape.Line) { Seg(pts[a].Translation, pts[b].Translation); continue; }
+                _curve.Clear();
+                RailCurve.Sample(pts[a], pts[b], _curve);
+                for (var k = 1; k < _curve.Count; k++) Seg(_curve[k - 1], _curve[k]);
+            }
+            // The selected rail shows its curve handles.
+            if (selectedRail)
+                foreach (var p in pts)
+                    foreach (var h in new[] { p.Control0, p.Control1 })
+                        if (h != p.Translation)
+                        {
+                            Line(p.Translation, h, 1.5f, Palette.CurveHandle);
+                            Dot(h, 2.5f, Palette.CurveHandle);
+                        }
             foreach (var p in pts.Where(p => !isLap || LapShown(p)))
                 foreach (var dst in p.LinkTargets)
                     if (c.PointsByHash.TryGetValue(dst, out var q))

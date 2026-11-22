@@ -88,18 +88,13 @@ public sealed record CourseRail(BancRail Rail, CourseLayer Layer)
     /// <summary><c>RailSlideType</c> of a grind rail (0 when absent).</summary>
     public int GrindType => Dynamic?.TryGetValue("RailSlideType", out var v) == true && v is int i ? i : 0;
 
-    /// <summary>Polyline length through the nodes (closing segment included for closed rails).</summary>
-    public float Length
-    {
-        get
-        {
-            var p = Rail.Points;
-            var l = 0f;
-            for (var i = 1; i < p.Count; i++) l += Vector3.Distance(p[i - 1].Translation, p[i].Translation);
-            if (Rail.IsClosed && p.Count > 2) l += Vector3.Distance(p[^1].Translation, p[0].Translation);
-            return l;
-        }
-    }
+    /// <summary>Length along the rail's curves (<see cref="RailCurve"/>; closing segment included for closed rails).</summary>
+    public float Length => _length ??= RailCurve.Length(Rail);
+    private float? _length;
+
+    /// <summary>True when any segment bends through <c>Control0</c>/<c>Control1</c> handles.</summary>
+    public bool IsCurved => _curved ??= RailCurve.IsCurved(Rail);
+    private bool? _curved;
 }
 
 /// <summary>

@@ -11,9 +11,9 @@ Start every session by reading `docs/ROADMAP.md` (plan + progress log), `docs/DE
 - `dotnet build`, `dotnet test`.
 - Game data comes from `--romfs <dir>`, `MKWSAT_ROMFS`, or the git-ignored `mkwsat.local.json`
   (see `mkwsat.local.example.json`). The reference dump is version 1.8 (`Product.180`).
-- Headless renders: `MKWSatellite --course <name part> --screenshot out.png --size WxH [--3d --orbit yaw,pitch,dist | --first-person]
+- Headless renders: `MKWSatellite --course <name part> --screenshot out.png --size WxH [--3d --orbit yaw,pitch,dist [--target x,y,z] | --first-person]
   [--no-ui] [--layer Field=value]`. Top-down shots larger than the window are tiled and stitched.
-- `mkwsat` subcommands (`course`, `terrain`, `model`, `tex`, `dump`, `ground`, `areafit`, ...) check formats against
+- `mkwsat` subcommands (`course`, `terrain`, `model`, `tex`, `dump`, `ground`, `areafit`, `rails`, ...) check formats against
   the data; `MKWSAT_ALL=1` makes `course`/`model` list every type/shape.
 - To let the user run the app while you keep building, copy the App bin folder elsewhere and run the copy.
 - Release packages: `pwsh dist/publish.ps1` (viewer only: self-contained folders per OS + a portable framework-dependent one; see dist/README.md).
